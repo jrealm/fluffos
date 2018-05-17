@@ -26,6 +26,7 @@ error_context_t *current_error_context = 0;
  */
 long current_time;
 
+long heart_beat_time;
 object_t *current_heart_beat;
 static void look_for_objects_to_swap (void);
 void call_heart_beat (void);
@@ -349,6 +350,7 @@ void call_heart_beat()
 
 	if ((num_hb_to_do = num_hb_objs)) {
 		num_hb_calls++;
+		heart_beat_time = current_time;
 		heart_beat_index = 0;
 		save_context(&econ);
 		while (1) {
