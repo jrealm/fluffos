@@ -1739,8 +1739,10 @@ int convert_type (int type){
         return T_FUNCTION;
     case TYPE_REAL:
         return T_REAL;
+#ifndef NO_BUFFER_TYPE
     case TYPE_BUFFER:
         return T_BUFFER;
+#endif
     default:
         if(type & TYPE_MOD_ARRAY)
             return T_ARRAY;
@@ -1781,9 +1783,11 @@ parse_node_t *add_type_check (parse_node_t * node, int intype) {
     case TYPE_REAL:
         type = T_REAL;
         break;
+#ifndef NO_BUFFER_TYPE
     case TYPE_BUFFER:
         type = T_BUFFER;
         break;
+#endif
     default:
         if(intype & TYPE_MOD_ARRAY)
             type = T_ARRAY;
