@@ -3912,8 +3912,7 @@ f_set_reset (void)
         free_object(&(--sp)->u.ob, "f_set_reset:1");
         sp--;
     } else {
-        sp->u.ob->next_reset = current_time + TIME_TO_RESET / 2 +
-            random_number(TIME_TO_RESET / 2);
+        sp->u.ob->next_reset = 0;
         free_object(&(sp--)->u.ob, "f_set_reset:2");
     }
 }

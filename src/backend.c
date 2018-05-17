@@ -214,9 +214,11 @@ static void look_for_objects_to_swap()
 	}
 #endif
 
+	if (!next_time)
+		next_time = boot_time + TIME_TO_RESET;
 	if (current_time < next_time)
 		return;     /* Not time to look yet */
-	next_time = current_time + 5 * 60; /* Next time is in 5 minutes */
+	next_time += TIME_TO_RESET;
 
 	/*
 	 * Objects object can be destructed, which means that next object to

@@ -2008,10 +2008,6 @@ object_t *get_empty_object (int num_var)
 
 void reset_object (object_t * ob)
 {
-    /* Be sure to update time first ! */
-    ob->next_reset = current_time + TIME_TO_RESET / 2 +
-        random_number(TIME_TO_RESET / 2);
-
     save_command_giver(0);
     if (!apply(APPLY_RESET, ob, 0, ORIGIN_DRIVER)) {
         /* no reset() in the object */
@@ -2023,10 +2019,6 @@ void reset_object (object_t * ob)
 
 void call_create (object_t * ob, int num_arg)
 {
-    /* Be sure to update time first ! */
-    ob->next_reset = current_time + TIME_TO_RESET / 2 +
-        random_number(TIME_TO_RESET / 2);
-
     call___INIT(ob);
 
     if (ob->flags & O_DESTRUCTED) {
