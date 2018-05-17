@@ -2249,6 +2249,14 @@ void start_new_file (int f)
         tmp[1] = '"';
         tmp[2] = 0;
         add_define("__DIR__", -1, dir);
+        tmp[0] = '"';
+        tmp[1] = 0;
+        tmp = strrchr(dir, '/');
+        if (tmp != NULL) {
+            tmp[1] = '"';
+            tmp[2] = 0;
+            add_define("__DIR_DIR__", -1, dir);
+        }
         FREE(dir);
     }
     yyin_desc = f;
