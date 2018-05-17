@@ -142,8 +142,9 @@ void backend()
 		 * select
 		 */
 		make_selectmasks();
-		timeout.tv_sec = 1;
-		timeout.tv_usec = 0;
+		gettimeofday(&timeout, NULL);
+		timeout.tv_sec = 0;
+		timeout.tv_usec = 1000000 - timeout.tv_usec;
 #ifndef hpux
 		nb = select(max_fd + 1, &readmask, &writemask, (fd_set *) 0, &timeout);
 #else
