@@ -346,6 +346,8 @@ void call_heart_beat()
 	heart_beat_t *curr_hb;
 	error_context_t econ;
 
+	apply_master_ob(APPLY_PRE_HEART_BEAT, 0);
+
 	current_interactive = 0;
 
 	if ((num_hb_to_do = num_hb_objs)) {
@@ -407,6 +409,9 @@ void call_heart_beat()
 	}
 	current_prog = 0;
 	current_heart_beat = 0;
+
+	apply_master_ob(APPLY_POST_HEART_BEAT, 0);
+
 	look_for_objects_to_swap();
 #ifdef PACKAGE_MUDLIB_STATS
 	mudlib_stats_decay();
