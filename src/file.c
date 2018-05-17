@@ -198,8 +198,7 @@ array_t *get_dir (const char * path, int flags)
 #else
         namelen = de->d_namlen;
 #endif
-        if (!do_match && (strcmp(de->d_name, ".") == 0 ||
-                          strcmp(de->d_name, "..") == 0))
+        if (!do_match && !strncmp(de->d_name, ".", 1))
             continue;
         if (do_match && !match_string(regexppath, de->d_name))
             continue;
@@ -252,8 +251,7 @@ array_t *get_dir (const char * path, int flags)
 #else
         namelen = de->d_namlen;
 #endif
-        if (!do_match && (strcmp(de->d_name, ".") == 0 ||
-                          strcmp(de->d_name, "..") == 0))
+        if (!do_match && !strncmp(de->d_name, ".", 1))
             continue;
         if (do_match && !match_string(regexppath, de->d_name))
             continue;
