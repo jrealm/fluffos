@@ -219,7 +219,7 @@ void setup_new_commands (object_t * dest, object_t * item)
  * Also check if the user is a wizard. Wizards must not affect the
  * value of the wizlist ranking.
  */
-static void enable_commands (int num)
+static void enable_commands (int num, int toggle)
 {
 #ifndef NO_ENVIRONMENT
     object_t *pp;
@@ -232,8 +232,19 @@ static void enable_commands (int num)
 		   current_object->obname, current_object->ref));
 
     if (num) {
-	current_object->flags |= O_ENABLE_COMMANDS;
-	set_command_giver(current_object);
+	if (toggle) {
+#ifndef NO_ENVIRONMENT
+	    for (pp = current_object->contains; pp; pp = pp->next_inv) {
+		setup_new_commands(current_object, pp);
+	    }
+	    if (current_object->super) {
+		setup_new_commands(current_object->super, current_object);
+	    }
+#endif
+	} else {
+	    current_object->flags |= O_ENABLE_COMMANDS;
+	    set_command_giver(current_object);
+	}
     } else {
 #ifndef NO_ENVIRONMENT
 	/* Remove all sentences defined for the object */
@@ -650,14 +661,15 @@ void f_commands (void)
 #ifdef F_DISABLE_COMMANDS
 void f_disable_commands (void)
 {
-    enable_commands(0);
+    enable_commands(0, 0);
 }
 #endif
 
 #ifdef F_ENABLE_COMMANDS
 void f_enable_commands (void)
 {
-    enable_commands(1);
+    enable_commands(1, sp->u.number);
+    pop_stack();
 }
 #endif
 
