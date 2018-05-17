@@ -194,10 +194,10 @@ static
 void set_linemode (interactive_t * ip)
 {
 	if (ip->iflags & USING_LINEMODE) {
-		add_binary_message(ip->ob, telnet_line_mode, sizeof(telnet_line_mode));
-		add_binary_message(ip->ob, telnet_lm_mode, sizeof(telnet_lm_mode));
+		add_binary_message(ip->ob, telnet_line_mode, sizeof(telnet_line_mode), 0);
+		add_binary_message(ip->ob, telnet_lm_mode, sizeof(telnet_lm_mode), 0);
 	} else {
-		add_binary_message(ip->ob, telnet_no_single, sizeof(telnet_no_single));
+		add_binary_message(ip->ob, telnet_no_single, sizeof(telnet_no_single), 0);
 	}
 }
 
@@ -205,9 +205,9 @@ static
 void set_charmode (interactive_t * ip)
 {
 	if (ip->iflags & USING_LINEMODE) {
-		add_binary_message(ip->ob, telnet_char_mode, sizeof(telnet_char_mode));
+		add_binary_message(ip->ob, telnet_char_mode, sizeof(telnet_char_mode), 0);
 	} else {
-		add_binary_message(ip->ob, telnet_yes_single, sizeof(telnet_yes_single));
+		add_binary_message(ip->ob, telnet_yes_single, sizeof(telnet_yes_single), 0);
 	}
 }
 
@@ -596,6 +596,9 @@ void add_message (object_t * who, const char * data, int len)
 	/*
 	 * write message into ip->message_buf.
 	 */
+	if (ip->message_length + translen + 256 > MESSAGE_BUF_SIZE) {
+		flush_message(ip);
+	}
 	end = trans + translen;
 	for (cp = trans; cp < end; cp++) {
 		if (ip->message_length == MESSAGE_BUF_SIZE) {
@@ -710,12 +713,6 @@ void add_vmessage (object_t *who, const char *format, ...)
 		ip->message_producer = (ip->message_producer + 1) % MESSAGE_BUF_SIZE;
 		ip->message_length++;
 	}
-	if (ip->message_length != 0) {
-		if (!flush_message(ip)) {
-			debug(connections, ("Broken connection during add_message.\n"));
-			return;
-		}
-	}
 
 	handle_snoop(new_string_data, len, ip);
 
@@ -726,7 +723,7 @@ void add_vmessage (object_t *who, const char *format, ...)
 	add_message_calls++;
 }                               /* add_message() */
 
-void add_binary_message (object_t * who, const unsigned char * data, int len)
+void add_binary_message (object_t * who, const unsigned char * data, int len, int expect)
 {
 	interactive_t *ip;
 	const unsigned char *cp, *end;
@@ -743,6 +740,9 @@ void add_binary_message (object_t * who, const unsigned char * data, int len)
 	/*
 	 * write message into ip->message_buf.
 	 */
+	if (expect < 0 || ip->message_length + len + expect > MESSAGE_BUF_SIZE) {
+		flush_message(ip);
+	}
 	end = data + len;
 	for (cp = data; cp < end; cp++) {
 		if (ip->message_length == MESSAGE_BUF_SIZE) {
@@ -799,23 +799,32 @@ int flush_message (interactive_t * ip)
 		} else {
 #endif
 			if(ip->connection_type == PORT_WEBSOCKET && (ip->iflags & HANDSHAKE_COMPLETE)){
-				ip->out_of_band = 0;
-				//ok we're in trouble, we have to send the whole thing at once, otherwise we don't know the size!
-				//try to get away with only sending small chunks
-				int sendsize = length;
-				if(length > 125){
-					sendsize = 125;
+				int sendres, expectsize, sendsize = ip->message_length;
+				if (sendsize > 125) {
+					unsigned int flags = htonl(sendsize | 0x827E0000);
+					expectsize = 4;
+					sendres = send(ip->fd, &flags, 4, 0);
+				} else {
+					unsigned short flags = htons(sendsize | 0x8200);
+					expectsize = 2;
+					sendres = send(ip->fd, &flags, 2, 0);
 				}
-				unsigned short flags = htons(sendsize | 0x8200); //82 is final packet (of this message) type binary
-				int sendres = send(ip->fd, &flags, 2, 0);
-				if(sendres <= 0)
-					return 1; //wait
-				if(sendres == 1) {
+				if (sendres <= 0) {
+					return 1;
+				} else if (sendres != expectsize) {
 					ip->iflags |= NET_DEAD;
 					return 0;
 				}
-				num_bytes = send(ip->fd, ip->message_buf + ip->message_consumer, sendsize, 0);
-				if(num_bytes!=sendsize){
+				num_bytes = send(ip->fd, ip->message_buf + ip->message_consumer, length, 0);
+				if (num_bytes == length) {
+					if (sendsize > length) {
+						num_bytes += send(ip->fd, ip->message_buf, sendsize - length, 0);
+						if (num_bytes != sendsize) {
+							ip->iflags |= NET_DEAD;
+							return 0;
+						}
+					}
+				} else {
 					ip->iflags |= NET_DEAD;
 					return 0;
 				}
@@ -869,18 +878,18 @@ static int send_mssp_val(mapping_t *map, mapping_node_t *el, void *obp){
 	if(el->values[0].type == T_STRING && el->values[1].type == T_STRING){
 		char buf[1024];
 		int len = sprintf(buf, (char *)telnet_mssp_value, el->values[0].u.string, el->values[1].u.string);
-		add_binary_message(ob, (unsigned char *)buf, len);
+		add_binary_message(ob, (unsigned char *)buf, len, 0);
 	} else if (el->values[0].type == T_STRING && el->values[1].type == T_ARRAY && el->values[1].u.arr->size > 0 && el->values[1].u.arr->item[0].type == T_STRING){
 		char buf[10240];
 		int len = sprintf(buf, (char *)telnet_mssp_value, el->values[0].u.string, el->values[1].u.arr->item[0].u.string);
-		add_binary_message(ob, (unsigned char *)buf, len);
+		add_binary_message(ob, (unsigned char *)buf, len, -1);
 		array_t *ar = el->values[1].u.arr;
 		int i;
 		unsigned char val = MSSP_VAL;
 		for(i=1; i < ar->size; i++){
 			if(ar->item[i].type == T_STRING){
-				add_binary_message(ob, &val, 1);
-				add_binary_message(ob, (const unsigned char *)ar->item[i].u.string, strlen(ar->item[i].u.string));
+				add_binary_message(ob, &val, 1, 0);
+				add_binary_message(ob, (const unsigned char *)ar->item[i].u.string, strlen(ar->item[i].u.string), 0);
 			}
 		}
 
@@ -954,21 +963,21 @@ static void copy_chars (interactive_t * ip, char * from, int num_bytes)
 					break;
 
 				case BREAK:
-					add_binary_message(ip->ob, telnet_break_response, sizeof(telnet_break_response));
+					add_binary_message(ip->ob, telnet_break_response, sizeof(telnet_break_response), 0);
 					break;
 
 				case IP:    /* interrupt process */
-					add_binary_message(ip->ob, telnet_ip_response, sizeof(telnet_ip_response));
+					add_binary_message(ip->ob, telnet_ip_response, sizeof(telnet_ip_response), 0);
 					break;
 
 				case AYT:   /* are you there?  you bet */
-					add_binary_message(ip->ob, telnet_ayt_response, sizeof(telnet_ayt_response));
+					add_binary_message(ip->ob, telnet_ayt_response, sizeof(telnet_ayt_response), 0);
 					break;
 
 				case AO:    /* abort output */
 					flush_message(ip);
 					ip->out_of_band = MSG_OOB;
-					add_binary_message(ip->ob, telnet_abort_response, sizeof(telnet_abort_response));
+					add_binary_message(ip->ob, telnet_abort_response, sizeof(telnet_abort_response), 0);
 					break;
 
 				default:
@@ -981,7 +990,7 @@ static void copy_chars (interactive_t * ip, char * from, int num_bytes)
 					ip->iflags |= USING_TELNET;
 					switch ((unsigned char)from[i]) {
 					case TELOPT_TTYPE:
-						add_binary_message(ip->ob, telnet_term_query, sizeof(telnet_term_query));
+						add_binary_message(ip->ob, telnet_term_query, sizeof(telnet_term_query), 0);
 						break;
 
 					case TELOPT_LINEMODE:
@@ -1002,12 +1011,12 @@ static void copy_chars (interactive_t * ip, char * from, int num_bytes)
 						break;
 
 					case TELOPT_NEW_ENVIRON :
-						add_binary_message(ip->ob, telnet_send_uservar, sizeof(telnet_send_uservar));
+						add_binary_message(ip->ob, telnet_send_uservar, sizeof(telnet_send_uservar), 0);
 						break;
 
 					default:
 						dont_response[2] = from[i];
-						add_binary_message(ip->ob, dont_response, sizeof(dont_response));
+						add_binary_message(ip->ob, dont_response, sizeof(dont_response), 0);
 						break;
 					}
 					ip->state = TS_DATA;
@@ -1030,18 +1039,18 @@ static void copy_chars (interactive_t * ip, char * from, int num_bytes)
 						case TS_DO:
 							switch ((unsigned char)from[i]) {
 							case TELOPT_TM:
-								add_binary_message(ip->ob, telnet_do_tm_response, sizeof(telnet_do_tm_response));
+								add_binary_message(ip->ob, telnet_do_tm_response, sizeof(telnet_do_tm_response), 0);
 								break;
 
 							case TELOPT_SGA:
 								if (ip->iflags & USING_LINEMODE) {
 									ip->iflags |= SUPPRESS_GA;
-									add_binary_message(ip->ob, telnet_yes_single, sizeof(telnet_yes_single));
+									add_binary_message(ip->ob, telnet_yes_single, sizeof(telnet_yes_single), 0);
 								} else {
 									if (ip->iflags & SINGLE_CHAR)
-										add_binary_message(ip->ob, telnet_yes_single, sizeof(telnet_yes_single));
+										add_binary_message(ip->ob, telnet_yes_single, sizeof(telnet_yes_single), 0);
 									else
-										add_binary_message(ip->ob, telnet_no_single, sizeof(telnet_no_single));
+										add_binary_message(ip->ob, telnet_no_single, sizeof(telnet_no_single), 0);
 								}
 								break;
 							case TELOPT_GMCP:
@@ -1053,7 +1062,7 @@ static void copy_chars (interactive_t * ip, char * from, int num_bytes)
 								break;
 							case TELOPT_MSSP:
 							{
-								add_binary_message(ip->ob, telnet_start_mssp, sizeof(telnet_start_mssp));
+								add_binary_message(ip->ob, telnet_start_mssp, sizeof(telnet_start_mssp), -1);
 								svalue_t *res = apply_master_ob(APPLY_GET_MUD_STATS, 0);
 								mapping_t *map;
 								if(res <=  (svalue_t *)0 || res->type != T_MAPPING) {
@@ -1073,7 +1082,7 @@ static void copy_chars (interactive_t * ip, char * from, int num_bytes)
 								if(!tmp){
 									char buf[1024];
 									int len = sprintf(buf, (char *)telnet_mssp_value, "NAME", MUD_NAME);
-									add_binary_message(ip->ob, (unsigned char *)buf, len);
+									add_binary_message(ip->ob, (unsigned char *)buf, len, 0);
 								}
 								tmp = findstring("PLAYERS");
 								if(tmp){
@@ -1086,7 +1095,7 @@ static void copy_chars (interactive_t * ip, char * from, int num_bytes)
 									char num[5];
 									sprintf(num, "%d", num_user);
 									int len = sprintf(buf, (char *)telnet_mssp_value, "PLAYERS", num);
-									add_binary_message(ip->ob, (unsigned char *)buf, len);
+									add_binary_message(ip->ob, (unsigned char *)buf, len, 0);
 								}
 								tmp = findstring("UPTIME");
 								if(tmp){
@@ -1100,25 +1109,25 @@ static void copy_chars (interactive_t * ip, char * from, int num_bytes)
 
 									sprintf(num, "%ld", boot_time);
 									int len = sprintf(buf, (char *)telnet_mssp_value, "UPTIME", num);
-									add_binary_message(ip->ob, (unsigned char *)buf, len);
+									add_binary_message(ip->ob, (unsigned char *)buf, len, 0);
 								}
 								//now send the rest
 								mapTraverse(map, send_mssp_val, ip->ob);
-								add_binary_message(ip->ob, telnet_end_sub, sizeof(telnet_end_sub));
+								add_binary_message(ip->ob, telnet_end_sub, sizeof(telnet_end_sub), 0);
 							}
 							break;
 #ifdef HAVE_ZLIB
 							case TELOPT_COMPRESS :
 								if(!ip->compressed_stream){
 									add_binary_message(ip->ob, telnet_compress_v1_response,
-											sizeof(telnet_compress_v1_response));
+											sizeof(telnet_compress_v1_response), 0);
 									start_compression(ip);
 								}
 								break;
 							case TELOPT_COMPRESS2 :
 								if(!ip->compressed_stream){
 									add_binary_message(ip->ob, telnet_compress_v2_response,
-											sizeof(telnet_compress_v2_response));
+											sizeof(telnet_compress_v2_response), 0);
 									start_compression(ip);
 								}
 								break;
@@ -1128,7 +1137,7 @@ static void copy_chars (interactive_t * ip, char * from, int num_bytes)
 								break;
 							default:
 								wont_response[2] = from[i];
-								add_binary_message(ip->ob, wont_response, sizeof(wont_response));
+								add_binary_message(ip->ob, wont_response, sizeof(wont_response), 0);
 								break;
 							}
 							ip->state = TS_DATA;
@@ -1139,14 +1148,14 @@ static void copy_chars (interactive_t * ip, char * from, int num_bytes)
 								case TELOPT_SGA:
 									if (ip->iflags & USING_LINEMODE) {
 										ip->iflags &= ~SUPPRESS_GA;
-										add_binary_message(ip->ob, telnet_no_single, sizeof(telnet_no_single));
+										add_binary_message(ip->ob, telnet_no_single, sizeof(telnet_no_single), 0);
 									}
 									break;
 #ifdef HAVE_ZLIB
 								case TELOPT_COMPRESS2:
 									// If we are told not to use v2, then try v1.
 									add_binary_message(ip->ob, telnet_compress_send_request_v1,
-											sizeof(telnet_compress_send_request_v1));
+											sizeof(telnet_compress_send_request_v1), 0);
 									break;
 #endif
 								}
@@ -1213,7 +1222,7 @@ static void copy_chars (interactive_t * ip, char * from, int num_bytes)
 													unsigned char sb_ack[] = { IAC, SB, TELOPT_LINEMODE, LM_MODE, MODE_EDIT | MODE_TRAPSIG | MODE_ACK, IAC, SE };
 
 													/* Accept only EDIT and TRAPSIG && force them too */
-													add_binary_message(ip->ob, sb_ack, sizeof(sb_ack));
+													add_binary_message(ip->ob, sb_ack, sizeof(sb_ack), 0);
 												}
 												break;
 
@@ -1312,7 +1321,7 @@ static void copy_chars (interactive_t * ip, char * from, int num_bytes)
 													/* send our response */
 													slc_response[slc_length++] = IAC;
 													slc_response[slc_length++] = SE;
-													add_binary_message(ip->ob, slc_response, slc_length);
+													add_binary_message(ip->ob, slc_response, slc_length, 0);
 												}
 											}
 											break;
@@ -1323,7 +1332,7 @@ static void copy_chars (interactive_t * ip, char * from, int num_bytes)
 
 												/* send back IAC SB TELOPT_LINEMODE WONT x IAC SE */
 												sb_wont[4] = ip->sb_buf[2];
-												add_binary_message(ip->ob, sb_wont, sizeof(sb_wont));
+												add_binary_message(ip->ob, sb_wont, sizeof(sb_wont), 0);
 											}
 											break;
 
@@ -1333,7 +1342,7 @@ static void copy_chars (interactive_t * ip, char * from, int num_bytes)
 
 												/* send back IAC SB TELOPT_LINEMODE DONT x IAC SE */
 												sb_dont[4] = ip->sb_buf[2];
-												add_binary_message(ip->ob, sb_dont, sizeof(sb_dont));
+												add_binary_message(ip->ob, sb_dont, sizeof(sb_dont), 0);
 											}
 											break;
 											}
@@ -1995,6 +2004,10 @@ static void new_user_handler (int which)
 		/* it's ok if this fails */
 	}
 #endif
+	if (external_port[which].kind == PORT_WEBSOCKET) {
+		int sndbuf = 65536;
+		setsockopt(new_socket_fd, SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof sndbuf);
+	}
 	/* find the first available slot */
 	for (i = 0; i < max_users; i++)
 		if (!all_users[i]) break;
@@ -2146,23 +2159,23 @@ static void new_user_handler (int which)
 
 	if (external_port[which].kind == PORT_TELNET) {
 		/* Ask permission to ask them for their terminal type */
-		add_binary_message(ob, telnet_do_ttype, sizeof(telnet_do_ttype));
+		add_binary_message(ob, telnet_do_ttype, sizeof(telnet_do_ttype), 0);
 		/* Ask them for their window size */
-		add_binary_message(ob, telnet_do_naws, sizeof(telnet_do_naws));
+		add_binary_message(ob, telnet_do_naws, sizeof(telnet_do_naws), 0);
 #ifdef HAVE_ZLIB
 		add_binary_message(ob, telnet_compress_send_request_v2,
-				sizeof(telnet_compress_send_request_v2));
+				sizeof(telnet_compress_send_request_v2), 0);
 #endif
 		// Ask them if they support mxp.
-		add_binary_message(ob, telnet_do_mxp, sizeof(telnet_do_mxp));
+		add_binary_message(ob, telnet_do_mxp, sizeof(telnet_do_mxp), 0);
 		// And mssp
-		add_binary_message(ob, telnet_will_mssp, sizeof(telnet_will_mssp));
+		add_binary_message(ob, telnet_will_mssp, sizeof(telnet_will_mssp), 0);
 		// May as well ask for zmp while we're there!
-		add_binary_message(ob, telnet_will_zmp, sizeof(telnet_will_zmp));
+		add_binary_message(ob, telnet_will_zmp, sizeof(telnet_will_zmp), 0);
 		// Also newenv
-		add_binary_message(ob, telnet_do_newenv, sizeof(telnet_do_newenv));
+		add_binary_message(ob, telnet_do_newenv, sizeof(telnet_do_newenv), 0);
 		// gmcp *yawn*
-		add_binary_message(ob, telnet_will_gmcp, sizeof(telnet_will_gmcp));
+		add_binary_message(ob, telnet_will_gmcp, sizeof(telnet_will_gmcp), 0);
 	}
 
 	logon(ob);
@@ -2220,7 +2233,7 @@ static char *get_user_command()
 		if ((ip->iflags & NOECHO) && !(ip->iflags & SINGLE_CHAR)) {
 #endif
 			/* must not enable echo before the user input is received */
-			add_binary_message(command_giver, telnet_no_echo, sizeof(telnet_no_echo));
+			add_binary_message(command_giver, telnet_no_echo, sizeof(telnet_no_echo), 0);
 			ip->iflags &= ~NOECHO;
 		}
 
@@ -2673,7 +2686,7 @@ static char *get_user_command()
 				set_linemode(i);
 			}
 			if (was_noecho && !(i->iflags & NOECHO))
-				add_binary_message(i->ob, telnet_no_echo, sizeof(telnet_no_echo));
+				add_binary_message(i->ob, telnet_no_echo, sizeof(telnet_no_echo), 0);
 		}
 #endif
 
@@ -2689,7 +2702,7 @@ static char *get_user_command()
 		ob->interactive->input_to = sent;
 		ob->interactive->iflags |= (flags & (I_NOECHO | I_NOESC | I_SINGLE_CHAR));
 		if (flags & I_NOECHO)
-			add_binary_message(ob, telnet_yes_echo, sizeof(telnet_yes_echo));
+			add_binary_message(ob, telnet_yes_echo, sizeof(telnet_yes_echo), 0);
 		if (flags & I_SINGLE_CHAR)
 			set_charmode(ob->interactive);
 		return (1);
@@ -2735,7 +2748,7 @@ static void print_prompt (interactive_t* ip)
 	 * case? We'll see, I guess.
 	 */
 	if ((ip->iflags & USING_TELNET) && !(ip->iflags & SUPPRESS_GA))
-		add_binary_message(command_giver, telnet_ga, sizeof(telnet_ga));
+		add_binary_message(command_giver, telnet_ga, sizeof(telnet_ga), 0);
 	if (!IP_VALID(ip, ob)) return;
 }                               /* print_prompt() */
 
@@ -3409,33 +3422,33 @@ static int send_compressed (interactive_t *ip, unsigned char* data, int length) 
 
 #ifdef F_ACT_MXP
 void f_act_mxp(){
-	add_binary_message(current_object, telnet_will_mxp, sizeof(telnet_will_mxp));
+	add_binary_message(current_object, telnet_will_mxp, sizeof(telnet_will_mxp), 0);
 }
 #endif
 
 #ifdef F_SEND_ZMP
 void f_send_zmp(){
-	add_binary_message(current_object, telnet_start_zmp, sizeof(telnet_start_zmp));
-	add_binary_message(current_object, (const unsigned char *)(sp-1)->u.string, strlen((sp-1)->u.string));
+	add_binary_message(current_object, telnet_start_zmp, sizeof(telnet_start_zmp), -1);
+	add_binary_message(current_object, (const unsigned char *)(sp-1)->u.string, strlen((sp-1)->u.string), 0);
 	int i;
 	unsigned char zero = 0;
 	for(i=0; i<sp->u.arr->size; i++){
 		if(sp->u.arr->item[i].type == T_STRING){
-			add_binary_message(current_object, &zero, 1);
-			add_binary_message(current_object, (const unsigned char *)sp->u.arr->item[i].u.string, strlen(sp->u.arr->item[i].u.string));
+			add_binary_message(current_object, &zero, 1, 0);
+			add_binary_message(current_object, (const unsigned char *)sp->u.arr->item[i].u.string, strlen(sp->u.arr->item[i].u.string), 0);
 		}
 	}
-	add_binary_message(current_object, &zero, 1);
-	add_binary_message(current_object, telnet_end_sub, sizeof(telnet_end_sub));
+	add_binary_message(current_object, &zero, 1, 0);
+	add_binary_message(current_object, telnet_end_sub, sizeof(telnet_end_sub), 0);
 	pop_2_elems();
 }
 #endif
 
 #ifdef F_SEND_GMCP
 void f_send_gmcp(){
-	add_binary_message(current_object, telnet_start_gmcp, sizeof(telnet_start_gmcp));
-	add_binary_message(current_object, (const unsigned char *)(sp->u.string), strlen(sp->u.string));
-	add_binary_message(current_object, telnet_end_sub, sizeof(telnet_end_sub));
+	add_binary_message(current_object, telnet_start_gmcp, sizeof(telnet_start_gmcp), strlen(sp->u.string) + sizeof(telnet_end_sub));
+	add_binary_message(current_object, (const unsigned char *)(sp->u.string), strlen(sp->u.string), 0);
+	add_binary_message(current_object, telnet_end_sub, sizeof(telnet_end_sub), 0);
 
   pop_stack();
 }
@@ -3443,13 +3456,13 @@ void f_send_gmcp(){
 
 #ifdef F_REQUEST_TERM_TYPE
 void f_request_term_type(){
-	add_binary_message(command_giver, telnet_term_query, sizeof(telnet_term_query));
+	add_binary_message(command_giver, telnet_term_query, sizeof(telnet_term_query), 0);
 }
 #endif
 
 #ifdef F_START_REQUEST_TERM_TYPE
 void f_start_request_term_type(){
-	add_binary_message(command_giver, telnet_do_ttype, sizeof(telnet_do_ttype));
+	add_binary_message(command_giver, telnet_do_ttype, sizeof(telnet_do_ttype), 0);
 }
 #endif
 
@@ -3457,9 +3470,9 @@ void f_start_request_term_type(){
 void f_request_term_size(){
 	if((st_num_arg == 1) && (sp->u.number == 0))
 		add_binary_message(command_giver, telnet_dont_naws,
-				sizeof(telnet_dont_naws));
+				sizeof(telnet_dont_naws), 0);
 	else
-		add_binary_message(command_giver, telnet_do_naws, sizeof(telnet_do_naws));
+		add_binary_message(command_giver, telnet_do_naws, sizeof(telnet_do_naws), 0);
 
 	if(st_num_arg == 1)
 		sp--;
@@ -3475,21 +3488,37 @@ void f_websocket_handshake_done(){
 	current_interactive->interactive->iflags |= HANDSHAKE_COMPLETE;
 	object_t * ob = current_interactive;//command_giver;
 	/* Ask permission to ask them for their terminal type */
-	add_binary_message(ob, telnet_do_ttype, sizeof(telnet_do_ttype));
+	add_binary_message(ob, telnet_do_ttype, sizeof(telnet_do_ttype), 0);
 	/* Ask them for their window size */
-	add_binary_message(ob, telnet_do_naws, sizeof(telnet_do_naws));
+	add_binary_message(ob, telnet_do_naws, sizeof(telnet_do_naws), 0);
 
 	// Ask them if they support mxp.
-	add_binary_message(ob, telnet_do_mxp, sizeof(telnet_do_mxp));
+	add_binary_message(ob, telnet_do_mxp, sizeof(telnet_do_mxp), 0);
 	// And mssp
-	add_binary_message(ob, telnet_will_mssp, sizeof(telnet_will_mssp));
+	add_binary_message(ob, telnet_will_mssp, sizeof(telnet_will_mssp), 0);
 	// May as well ask for zmp while we're there!
 
-	add_binary_message(ob, telnet_will_zmp, sizeof(telnet_will_zmp));
+	add_binary_message(ob, telnet_will_zmp, sizeof(telnet_will_zmp), 0);
 	// Also newenv
-	add_binary_message(ob, telnet_do_newenv, sizeof(telnet_do_newenv));
+	add_binary_message(ob, telnet_do_newenv, sizeof(telnet_do_newenv), 0);
 	// gmcp *yawn*
-	add_binary_message(ob, telnet_will_gmcp, sizeof(telnet_will_gmcp));
+	add_binary_message(ob, telnet_will_gmcp, sizeof(telnet_will_gmcp), 0);
 
+}
+#endif
+
+#ifdef F_WEBSOCKET
+void f_websocket() {
+	int i = 0;
+
+	if (sp->u.ob->interactive) {
+		if (sp->u.ob->interactive->connection_type == PORT_WEBSOCKET) {
+			i = sp->u.ob->interactive->iflags & HANDSHAKE_COMPLETE;
+		}
+	}
+
+	free_object(&sp->u.ob, "f_websocket");
+
+	put_number(!!i);
 }
 #endif

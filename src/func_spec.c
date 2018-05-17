@@ -408,6 +408,7 @@ void message(mixed, mixed, string | string * | object | object *,
 #endif
     void act_mxp();
     void websocket_handshake_done();
+    int websocket(object default:F__THIS_OBJECT);
     void request_term_type();
     void start_request_term_type();
     void request_term_size(void | int);
