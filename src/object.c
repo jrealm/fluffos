@@ -2009,7 +2009,7 @@ object_t *get_empty_object (int num_var)
 void reset_object (object_t * ob)
 {
     save_command_giver(0);
-    if (!apply(APPLY_RESET, ob, 0, ORIGIN_DRIVER)) {
+    if (!safe_apply(APPLY_RESET, ob, 0, ORIGIN_DRIVER)) {
         /* no reset() in the object */
         ob->flags &= ~O_WILL_RESET;     /* don't call it next time */
     }
