@@ -202,7 +202,9 @@ void add_binary_message (object_t *, const unsigned char *, int);
 void update_ref_counts_for_users (void);
 INLINE void make_selectmasks (void);
 void init_user_conn (void);
+#ifndef NO_IP_DEMON
 void init_addr_server (char *, int);
+#endif
 void ipc_remove (void);
 void set_prompt (const char *);
 INLINE void process_io (void);

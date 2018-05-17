@@ -278,9 +278,11 @@ int main (int argc, char ** argv)
 			}
 			fprintf(stderr, "Illegal flag syntax: %s\n", argv[i]);
 			exit(-1);
+#ifndef NO_IP_DEMON
 		case 'N':
 			no_ip_demon++;
 			continue;
+#endif
 #ifdef HAS_CONSOLE
 		case 'C':
 			has_console = 1;

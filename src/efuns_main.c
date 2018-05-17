@@ -611,7 +611,7 @@ f_deep_inventory (void)
     int args = st_num_arg;
     if(st_num_arg==2 && sp->type == T_FUNCTION && ((sp-1)->type==T_ARRAY || (sp-1)->type==T_OBJECT) ) {
         if((sp-1)->type==T_ARRAY)
-            vec = deep_inventory_array((sp-1)->u.arr, 1 , sp->u.fp); 
+            vec = deep_inventory_array((sp-1)->u.arr, 1 , sp->u.fp);
         else /*(sp-1)->type==T_OBJECT*/
             vec = deep_inventory((sp-1)->u.ob, 0 , sp->u.fp);
     }
@@ -1323,7 +1323,7 @@ void f_has_gmcp(){
 		i = sp->u.ob->interactive->iflags & USING_GMCP;
 		i = !!i; //force 1 or 0
 	}
-	free_object(&sp->u.ob, "f_has_zmp");
+	free_object(&sp->u.ob, "f_has_gmcp");
 	put_number(i);
 }
 #endif
