@@ -2075,7 +2075,11 @@ static void new_user_handler (int which)
 	master_ob->interactive->ws_text_end = 0;
 	master_ob->interactive->ws_size = 0;
 #ifdef USE_ICONV
+#ifdef USE_BIG5
+	master_ob->interactive->trans = get_translator("BIG5");
+#else
 	master_ob->interactive->trans = get_translator("UTF-8");
+#endif
 #else
 	master_ob->interactive->trans = (struct translation *) master_ob;
 	//never actually used, but avoids multiple ifdefs later on!

@@ -25,15 +25,28 @@ struct translation *get_translator(const char *encoding){
 	return ret;
     ret = (struct translation *)DMALLOC(sizeof(struct translation),
         TAG_PERMANENT, "get_translator");
+#ifdef USE_BIG5
+    char *name = (char *)DMALLOC(strlen(encoding)+8+1,
+#else
     char *name = (char *)DMALLOC(strlen(encoding)+18+1,
+#endif
         TAG_PERMANENT, "get_translator");
     strcpy(name, encoding);
 #ifdef __linux__
+#ifdef USE_BIG5
+    strcat(name, "//IGNORE");
+#else
     strcat(name, "//TRANSLIT//IGNORE");
 #endif
+#endif
     ret->name = name;
+#ifdef USE_BIG5
+    ret->incoming = iconv_open("BIG5//IGNORE", encoding);
+    ret->outgoing = iconv_open(name, "BIG5");
+#else
     ret->incoming = iconv_open("UTF-8", encoding);
     ret->outgoing = iconv_open(name, "UTF-8");
+#endif
 
     ret->next = 0;
     if(ret->incoming == (iconv_t)-1 || ret->outgoing == (iconv_t)-1){
