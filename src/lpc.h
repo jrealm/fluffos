@@ -4,6 +4,14 @@
 /* It is usually better to include "lpc_incl.h" instead of including this
    directly */
 
+#ifndef INT64_MAX
+    #define INT64_MAX (__INT64_C(9223372036854775807))
+#endif
+
+#ifndef INT64_MIN
+    #define INT64_MIN (-__INT64_C(9223372036854775807)-1)
+#endif
+
 /* type definiation for LPC types. */
 typedef int64_t LPC_INT;
 #define LPC_INT_MAX INT64_MAX
