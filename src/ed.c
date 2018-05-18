@@ -618,13 +618,16 @@ static int prntln (char * str, char * outstr, int vflg, int lineno)
         sprintf(line, "%3d  ", lineno);
         line += 5;
     }
+#ifdef USE_ICONV
+    str = translate_easy(command_giver->interactive->trans->outgoing, str);
+#endif
     while (*str && *str != NL) {
         if ((line - start) >= (ED_MAXLINE-1)) {
             line = start + ED_MAXLINE - 33;
             line += sprintf(line, "messing up end of a long line\n");
             break;
         }
-        if (*str < ' ' || *str >= DEL) {
+        if (*str >= 0 && *str < ' ') {
             switch (*str) {
             case '\t':
                 /* have to be smart about this or the indentor will fail */
