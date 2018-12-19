@@ -1767,7 +1767,7 @@ f_mkdir (void)
     const char *path;
 
     path = check_valid_path(sp->u.string, current_object, "mkdir", 1);
-    if (!path || OS_mkdir(path, 0770) == -1) {
+    if (!path || OS_mkdir(path, 0777) == -1) {
         free_string_svalue(sp);
         *sp = const0;
     }
