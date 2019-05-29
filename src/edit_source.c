@@ -1624,7 +1624,7 @@ static void handle_configure() {
             }
         }
         if (lookup_define("USE_POSTGRES")) {
-        	if (!(check_include("USE_POSTGRES", "/usr/include/postgresql/libpq-fe.h"))) {
+        	if (!(check_include("USE_POSTGRES", "/usr/include/libpq-fe.h"))) {
         		fprintf(stderr,
         				"Cannot find libpq-fe.h, compilation is going to fail miserably.\n");
         	}

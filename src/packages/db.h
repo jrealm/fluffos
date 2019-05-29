@@ -4,7 +4,7 @@
 #ifdef PACKAGE_DB
 
 #ifdef USE_POSTGRES
-#include "/usr/include/postgresql/libpq-fe.h"
+#include "/usr/include/libpq-fe.h"
 #endif
 
 #ifdef USE_MSQL
