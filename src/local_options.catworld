@@ -882,6 +882,8 @@
 /*PACKAGE_CRYPTO: adds a function that does multiple hash types hash(hash, string), needs openssl lib and includes and -lssl in system_libs*/
 #define PACKAGE_CRYPTO
 
+#define PACKAGE_PCRE
+
 /* PROG_REF_TYPE size of program ref counter:
  * char for 8 bit, short for 16, int for 32,
  * long long for 64 (completely useless on 32 bit machines though!) */
