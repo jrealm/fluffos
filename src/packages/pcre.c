@@ -376,7 +376,11 @@ static pcre *pcre_local_compile(pcre_t *p)
 {
 	p->re = pcre_compile(
 			p->pattern.u.string,
+#if defined USE_ICONV && !defined USE_BIG5
+			PCRE_UTF8,
+#else
 			0,
+#endif
 			&p->error,
 			&p->erroffset,
 			NULL);
