@@ -367,18 +367,33 @@ export class Machine {
             args.unshift(this.stack.pop());
           }
           const name = this.currentProgram.strings[nameIdx];
-          const found = this.currentProgram.findInheritedFunction(name);
+          let found = this.currentProgram.findInheritedFunction(name);
+          // If not found in current program, search up the call stack
+          // (handles features that call inherited functions from the containing object)
+          if (!found) {
+            for (let fi = this.callStack.length - 1; fi >= 0 && !found; fi--) {
+              const frame = this.callStack[fi];
+              if (frame.program) {
+                found = frame.program.findFunction(name) ? { fn: frame.program.findFunction(name), program: frame.program } : frame.program.findInheritedFunction(name);
+              }
+            }
+          }
           if (found) {
             const savedProgram = this.currentProgram;
             const savedGlobals = this.globals;
             this.currentProgram = found.program;
-            // Share globals — inherited functions access the same global variable space
             const result = this.callFunction(found.fn, args);
             this.currentProgram = savedProgram;
             this.globals = savedGlobals;
             this.stack.push(result);
           } else {
-            throw new Error(`Inherited function not found: ${name}`);
+            // Last resort: try as efun
+            if (this.efunHandler) {
+              const result = this.efunHandler(name, args);
+              this.stack.push(result);
+            } else {
+              throw new Error(`Inherited function not found: ${name}`);
+            }
           }
           break;
         }
@@ -465,6 +480,8 @@ export class Machine {
             obj.value.set(mappingKey(index), { key: index, value });
           } else if (obj.type === T_BUFFER) {
             obj.value[index.value] = value.value & 0xFF;
+          } else if (obj.type === T_INT && obj.value === 0) {
+            // Assigning to index of 0 (uninitialized) — silently ignore
           } else {
             throw new RuntimeError(`Cannot assign to index of type ${obj.type}`);
           }

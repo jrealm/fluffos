@@ -72,7 +72,11 @@ class CodeGen {
     // First pass: register all function names and global variables
     for (const decl of this.ast.body) {
       if (decl.type === 'FunctionDecl') {
-        this.localFunctionNames.add(decl.name);
+        // Only real definitions (with body) are local functions
+        // Prototypes are just forward declarations — they might refer to inherited functions
+        if (decl.body) {
+          this.localFunctionNames.add(decl.name);
+        }
         // Assign function index on first encounter (prototype or definition)
         if (!this.functionNames.has(decl.name)) {
           this.functionNames.set(decl.name, this.functionNames.size);
@@ -635,6 +639,13 @@ class CodeGen {
           this.emitter.emitOp(OP.CALL_SIMUL);
           this.emitter.emitShort(nameIdx);
           this.emitter.emit(node.args.length);
+        } else if (this.functionNames.has(node.name) && !this.localFunctionNames.has(node.name)) {
+          // Prototype declared but not locally defined — use CALL_INHERITED
+          // (will be resolved at runtime in the inheriting object's context)
+          const nameIdx = this.emitter.addString(node.name);
+          this.emitter.emitOp(OP.CALL_INHERITED);
+          this.emitter.emitShort(nameIdx);
+          this.emitter.emit(node.args.length);
         } else {
           // Unknown — assume efun
           const nameIdx = this.emitter.addString(node.name);
@@ -999,20 +1010,35 @@ export function compileWithInherit(filename, files, compileOptions = {}) {
     gen.inheritPrograms = inheritPrograms;
 
     // Register inherited functions and variables before compile
+    // Collect functions from parent AND all its ancestors (deep inheritance)
+    function collectFunctions(program, into) {
+      for (const fn of program.functions) {
+        if (!into.has(fn.name)) {
+          into.set(fn.name, { fn, program });
+        }
+      }
+      for (const inh of (program.inherits ?? [])) {
+        collectFunctions(inh.program, into);
+      }
+    }
+
     for (const parent of inheritPrograms) {
       const funcOffset = gen.functionNames.size;
       const varOffset = gen.globals.size;
-      for (const fn of parent.functions) {
-        if (!gen.inheritedFunctions.has(fn.name)) {
-          gen.inheritedFunctions.set(fn.name, { fn, program: parent });
+      collectFunctions(parent, gen.inheritedFunctions);
+      // Also collect variables from ancestors
+      function collectVars(program) {
+        for (const v of program.variables) {
+          if (!gen.globals.has(v.name)) {
+            gen.globals.set(v.name, gen.globals.size);
+            gen.emitter.variables.push({ name: v.name, type: v.type });
+          }
+        }
+        for (const inh of (program.inherits ?? [])) {
+          collectVars(inh.program);
         }
       }
-      for (const v of parent.variables) {
-        if (!gen.globals.has(v.name)) {
-          gen.globals.set(v.name, gen.globals.size);
-          gen.emitter.variables.push({ name: v.name, type: v.type });
-        }
-      }
+      collectVars(parent);
       gen.emitter.inherits.push({ program: parent, funcOffset, varOffset });
     }
 
