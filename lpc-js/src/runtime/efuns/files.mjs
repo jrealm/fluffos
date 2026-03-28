@@ -63,4 +63,42 @@ export function registerFileEfuns(reg, mudlibDir) {
       return mkArray([mkInt(s.size), mkInt(Math.floor(s.mtimeMs / 1000))]);
     } catch { return SVALUE_ZERO; }
   });
+
+  reg.register('read_bytes', (args) => {
+    try {
+      const fd = fs.openSync(resolve(args[0].value), 'r');
+      const start = args[1]?.value ?? 0;
+      const length = args[2]?.value ?? 0;
+      const buf = Buffer.alloc(length);
+      fs.readSync(fd, buf, 0, length, start);
+      fs.closeSync(fd);
+      return mkString(buf.toString('utf8'));
+    } catch { return SVALUE_ZERO; }
+  });
+
+  reg.register('write_bytes', (args) => {
+    try {
+      const fullPath = resolve(args[0].value);
+      const start = args[1].value;
+      const data = args[2].value;
+      const fd = fs.openSync(fullPath, 'r+');
+      fs.writeSync(fd, data, start);
+      fs.closeSync(fd);
+      return mkInt(1);
+    } catch { return SVALUE_ZERO; }
+  });
+
+  reg.register('cp', (args) => {
+    try {
+      fs.copyFileSync(resolve(args[0].value), resolve(args[1].value));
+      return mkInt(0);
+    } catch { return mkInt(-1); }
+  });
+
+  reg.register('rename', (args) => {
+    try {
+      fs.renameSync(resolve(args[0].value), resolve(args[1].value));
+      return mkInt(0);
+    } catch { return mkInt(-1); }
+  });
 }
