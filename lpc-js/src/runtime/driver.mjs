@@ -10,6 +10,7 @@ import { registerSaveEfuns } from './efuns/save.mjs';
 import { registerFileEfuns } from './efuns/files.mjs';
 import { registerShadowEfuns } from './efuns/shadow.mjs';
 import { registerDatabaseEfuns } from './efuns/database.mjs';
+import { registerSnoopEfuns } from './efuns/snoop.mjs';
 import { apply, setMachine, setApplyHook } from './apply.mjs';
 import { mkInt, mkString, mkArray, SVALUE_ZERO, T_OBJECT } from '../vm/svalue.mjs';
 
@@ -71,6 +72,7 @@ export class Driver {
     registerSaveEfuns(this.efuns, this);
     registerShadowEfuns(this.efuns, this);
     registerDatabaseEfuns(this.efuns);
+    registerSnoopEfuns(this.efuns, this);
 
     const mudlibDir = config['mudlib directory'] ?? '/';
     registerFileEfuns(this.efuns, mudlibDir);

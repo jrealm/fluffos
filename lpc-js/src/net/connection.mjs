@@ -71,6 +71,10 @@ export class Connection {
     if (this.state !== CONN_CLOSING && this.socket) {
       this.socket.write(data);
     }
+    // Forward to snooper
+    if (this.snoopedBy && this.snoopedBy.state !== CONN_CLOSING && this.snoopedBy.socket) {
+      this.snoopedBy.socket.write('% ' + data);
+    }
   }
 
   close() {
