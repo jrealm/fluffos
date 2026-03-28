@@ -28,7 +28,7 @@ export function deserializeObject(obj, text) {
   }
 }
 
-function serializeValue(sv) {
+export function serializeValue(sv) {
   switch (sv.type) {
     case T_INT: return String(sv.value);
     case T_STRING: return JSON.stringify(sv.value);
@@ -45,7 +45,7 @@ function serializeValue(sv) {
   }
 }
 
-function deserializeValue(str) {
+export function deserializeValue(str) {
   str = str.trim();
   if (str.startsWith('"')) {
     try { return mkString(JSON.parse(str)); } catch { return mkString(str.slice(1, -1)); }
@@ -136,5 +136,13 @@ export function registerSaveEfuns(reg, driver) {
       }
     }
     return SVALUE_ZERO;
+  });
+
+  reg.register('save_variable', (args) => {
+    return mkString(serializeValue(args[0]));
+  });
+
+  reg.register('restore_variable', (args) => {
+    return deserializeValue(args[0].value);
   });
 }
