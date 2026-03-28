@@ -84,6 +84,8 @@ export function tokenize(source, file = '<input>') {
   function match(expected) { if (source[pos] === expected) { advance(); return true; } return false; }
   function at(s) { return source.startsWith(s, pos); }
 
+  let arrayDepth = 0, mappingDepth = 0, fpDepth = 0;
+
   while (pos < source.length) {
     // Whitespace
     if (ch() === ' ' || ch() === '\t' || ch() === '\r' || ch() === '\n') {
@@ -188,16 +190,16 @@ export function tokenize(source, file = '<input>') {
 
     // Two-char and LPC special tokens starting with (
     if (ch() === '(') {
-      if (peek() === '{') { advance(); advance(); tokens.push(token(T.ARRAY_OPEN, '({', startLine, file)); continue; }
-      if (peek() === '[') { advance(); advance(); tokens.push(token(T.MAPPING_OPEN, '([', startLine, file)); continue; }
-      if (peek() === ':') { advance(); advance(); tokens.push(token(T.FP_OPEN, '(:', startLine, file)); continue; }
+      if (peek() === '{') { advance(); advance(); arrayDepth++; tokens.push(token(T.ARRAY_OPEN, '({', startLine, file)); continue; }
+      if (peek() === '[') { advance(); advance(); mappingDepth++; tokens.push(token(T.MAPPING_OPEN, '([', startLine, file)); continue; }
+      if (peek() === ':') { advance(); advance(); fpDepth++; tokens.push(token(T.FP_OPEN, '(:', startLine, file)); continue; }
       advance(); tokens.push(token(T.LPAREN, '(', startLine, file)); continue;
     }
 
-    // Closing LPC specials
-    if (ch() === '}' && peek() === ')') { advance(); advance(); tokens.push(token(T.ARRAY_CLOSE, '})', startLine, file)); continue; }
-    if (ch() === ']' && peek() === ')') { advance(); advance(); tokens.push(token(T.MAPPING_CLOSE, '])', startLine, file)); continue; }
-    if (ch() === ':' && peek() === ')') { advance(); advance(); tokens.push(token(T.FP_CLOSE, ':)', startLine, file)); continue; }
+    // Closing LPC specials — only match if we're inside the corresponding open
+    if (ch() === '}' && peek() === ')' && arrayDepth > 0) { advance(); advance(); arrayDepth--; tokens.push(token(T.ARRAY_CLOSE, '})', startLine, file)); continue; }
+    if (ch() === ']' && peek() === ')' && mappingDepth > 0) { advance(); advance(); mappingDepth--; tokens.push(token(T.MAPPING_CLOSE, '])', startLine, file)); continue; }
+    if (ch() === ':' && peek() === ')' && fpDepth > 0) { advance(); advance(); fpDepth--; tokens.push(token(T.FP_CLOSE, ':)', startLine, file)); continue; }
 
     // Operators and delimiters
     const c = advance();
@@ -296,6 +298,36 @@ export function tokenize(source, file = '<input>') {
         if (match('=')) { tokens.push(token(T.CARET_EQ, '^=', startLine, file)); }
         else { tokens.push(token(T.CARET, '^', startLine, file)); }
         break;
+
+      case "'": {
+        // Character literal: 'x' or '\n' etc.
+        // After advance() consumed opening ', pos points at the character
+        let charVal;
+        if (source[pos] === '\\') {
+          advance(); // skip backslash
+          const esc = advance();
+          switch (esc) {
+            case 'n': charVal = 10; break;
+            case 't': charVal = 9; break;
+            case 'r': charVal = 13; break;
+            case '0': charVal = 0; break;
+            case '\\': charVal = 92; break;
+            case "'": charVal = 39; break;
+            case 'x': {
+              let hex = '';
+              while (pos < source.length && /[0-9a-fA-F]/.test(source[pos])) hex += advance();
+              charVal = parseInt(hex, 16);
+              break;
+            }
+            default: charVal = esc?.charCodeAt(0) ?? 0;
+          }
+        } else {
+          charVal = advance()?.charCodeAt(0) ?? 0;
+        }
+        if (source[pos] === "'") advance(); // closing quote
+        tokens.push(token(T.INT_LIT, charVal, startLine, file));
+        break;
+      }
 
       default:
         throw new Error(`Unexpected character '${c}' at ${file}:${startLine}`);

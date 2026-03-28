@@ -1,5 +1,13 @@
 export function preprocess(source, options = {}) {
-  const defines = new Map(Object.entries(options.defines ?? {}));
+  const rawDefines = options.defines ?? {};
+  const defines = new Map();
+  for (const [key, value] of Object.entries(rawDefines)) {
+    if (typeof value === 'object' && value !== null && 'body' in value) {
+      defines.set(key, value); // Already in { params, body } format
+    } else {
+      defines.set(key, { params: null, body: String(value) });
+    }
+  }
   const includePaths = options.includePaths ?? [];
   const readFile = options.readFile ?? null;
   const pragmas = {};

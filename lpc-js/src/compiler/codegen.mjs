@@ -518,6 +518,11 @@ class CodeGen {
           this.emitter.emitOp(OP.POP);
           this.genExpr(node.right);
           this.emitter.patchShort(orHole, this.emitter.currentOffset());
+        } else if (node.operator === ',') {
+          // Comma operator: evaluate left, discard, evaluate right
+          this.genExpr(node.left);
+          this.emitter.emitOp(OP.POP);
+          this.genExpr(node.right);
         } else {
           this.genExpr(node.left);
           this.genExpr(node.right);

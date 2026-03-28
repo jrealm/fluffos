@@ -231,6 +231,24 @@ class Parser {
     if (this.match(T.EQ)) {
       init = this.parseExpression();
     }
+
+    // Support multi-var: int a, b = 1, c;
+    if (this.at(T.COMMA)) {
+      const decls = [AST.varDecl(typeName, name, init, 0, line)];
+      while (this.match(T.COMMA)) {
+        let vType = typeName;
+        if (this.match(T.STAR)) vType += '*';
+        const vName = this.expect(T.IDENT).value;
+        let vInit = null;
+        if (this.match(T.EQ)) {
+          vInit = this.parseExpression();
+        }
+        decls.push(AST.varDecl(vType, vName, vInit, 0, line));
+      }
+      this.expect(T.SEMICOLON);
+      return AST.block(decls, line);
+    }
+
     this.expect(T.SEMICOLON);
     return AST.varDecl(typeName, name, init, 0, line);
   }
@@ -271,6 +289,15 @@ class Parser {
     return AST.doWhileStatement(cond, body, line);
   }
 
+  parseCommaExpression() {
+    let expr = this.parseExpression();
+    while (this.match(T.COMMA)) {
+      const right = this.parseExpression();
+      expr = AST.binaryExpr(',', expr, right, expr.line);
+    }
+    return expr;
+  }
+
   parseFor() {
     const line = this.peek().line;
     this.expect(T.FOR);
@@ -284,7 +311,7 @@ class Parser {
         if (this.match(T.EQ)) varInit = this.parseExpression();
         init = AST.varDecl(typeName, name, varInit, 0, line);
       } else {
-        init = this.parseExpression();
+        init = this.parseCommaExpression();
       }
     }
     this.expect(T.SEMICOLON);
@@ -292,7 +319,7 @@ class Parser {
     if (!this.at(T.SEMICOLON)) cond = this.parseExpression();
     this.expect(T.SEMICOLON);
     let update = null;
-    if (!this.at(T.RPAREN)) update = this.parseExpression();
+    if (!this.at(T.RPAREN)) update = this.parseCommaExpression();
     this.expect(T.RPAREN);
     const body = this.parseStatement();
     return AST.forStatement(init, cond, update, body, line);
@@ -304,14 +331,36 @@ class Parser {
     this.expect(T.LPAREN);
 
     const vars = [];
-    let typeName = this.parseTypeName();
-    let varName = this.expect(T.IDENT).value;
-    vars.push({ typeName, name: varName });
 
-    if (this.match(T.COMMA)) {
-      let typeName2 = this.parseTypeName();
-      let varName2 = this.expect(T.IDENT).value;
-      vars.push({ typeName: typeName2, name: varName2 });
+    // Check if first token is a type or just a variable name
+    // If IDENT followed by IN → no type declaration (variable already declared)
+    // If IDENT followed by IDENT → type + name
+    // If type keyword followed by IDENT → type + name
+    if (this.at(T.IDENT) && this.tokens[this.pos + 1]?.type === T.IN) {
+      // No type: foreach (var in expr)
+      const varName = this.advance().value;
+      vars.push({ typeName: 'mixed', name: varName });
+    } else if (this.at(T.IDENT) && this.tokens[this.pos + 1]?.type === T.COMMA &&
+               this.tokens[this.pos + 2]?.type !== T.IDENT) {
+      // foreach (key, value in expr) — no types
+      const key = this.advance().value;
+      vars.push({ typeName: 'mixed', name: key });
+      this.expect(T.COMMA);
+      const val = this.expect(T.IDENT).value;
+      vars.push({ typeName: 'mixed', name: val });
+    } else {
+      // With types: foreach (type var in expr)
+      let typeName = this.parseTypeName();
+      if (this.match(T.STAR)) typeName += '*';
+      let varName = this.expect(T.IDENT).value;
+      vars.push({ typeName, name: varName });
+
+      if (this.match(T.COMMA)) {
+        let typeName2 = this.parseTypeName();
+        if (this.match(T.STAR)) typeName2 += '*';
+        let varName2 = this.expect(T.IDENT).value;
+        vars.push({ typeName: typeName2, name: varName2 });
+      }
     }
 
     this.expect(T.IN);

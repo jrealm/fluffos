@@ -69,10 +69,21 @@ export class Driver {
     });
 
     const readFile = options.readFile ?? null;
+    // Build compiler defines — combine options + FluffOS built-in macros
+    const compilerDefines = {
+      ...this.options.toDefines(),
+      MUD_NAME: `"${config['name'] ?? 'LPC-JS'}"`,
+      __ARCH__: '"lpc-js"',
+      __COMPILER__: '"lpc-js"',
+      __VERSION__: '"1.0"',
+      __PORT__: config['port number'] ?? '5000',
+    };
+
     this.objects = new ObjectManager({
       readFile,
       includePaths: (config['include directories'] ?? '').split(':').filter(Boolean),
-      defines: this.options.toDefines(),
+      defines: compilerDefines,
+      globalInclude: config['global include file'] ?? null,
     });
 
     this.callOuts.onFire = (func, obj, args) => {

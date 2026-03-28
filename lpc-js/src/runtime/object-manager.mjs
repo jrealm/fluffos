@@ -7,6 +7,7 @@ export class ObjectManager {
     this.readFile = options.readFile ?? null;
     this.includePaths = options.includePaths ?? [];
     this.compileDefines = options.defines ?? {};
+    this.globalInclude = options.globalInclude ?? null;
     this.objects = new Map();
     this.cloneCounter = 0;
     this.programCache = new Map();
@@ -61,8 +62,12 @@ export class ObjectManager {
 
     function collectFile(fname) {
       if (files[fname] !== undefined) return;
-      const source = self.readFile(fname);
+      let source = self.readFile(fname);
       if (source === null) throw new Error(`File not found: ${fname}`);
+      // Inject global include at the top of each file
+      if (self.globalInclude) {
+        source = `#include ${self.globalInclude}\n` + source;
+      }
       files[fname] = source;
 
       const inheritPattern = /inherit\s+"([^"]+)"\s*;/g;
