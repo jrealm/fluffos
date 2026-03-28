@@ -14,4 +14,12 @@ export class Program {
   findFunction(name) {
     return this.functions.find(f => f.name === name) ?? null;
   }
+
+  findInheritedFunction(name) {
+    for (const inh of this.inherits) {
+      const fn = inh.program.findFunction(name);
+      if (fn) return { fn, program: inh.program, varOffset: inh.varOffset };
+    }
+    return null;
+  }
 }

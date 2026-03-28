@@ -2,12 +2,15 @@ import { parse } from './parser.mjs';
 import { Program } from '../vm/program.mjs';
 import { OP } from '../vm/opcodes.mjs';
 
+import * as AST from './ast.mjs';
+
 class Emitter {
   constructor() {
     this.code = [];
     this.strings = [];
     this.functions = [];
     this.variables = [];
+    this.inherits = [];
   }
 
   emit(byte) { this.code.push(byte); }
@@ -37,6 +40,7 @@ class Emitter {
     prog.functions = this.functions;
     prog.strings = this.strings;
     prog.variables = this.variables;
+    prog.inherits = this.inherits;
     return prog;
   }
 }
@@ -49,6 +53,10 @@ class CodeGen {
     this.params = null;
     this.globals = new Map();
     this.functionNames = new Map();
+    this.localFunctionNames = new Set();
+    this.inheritedFunctions = new Map();
+    this.inheritPrograms = [];
+    this.pragmas = {};
     this.breakStack = [];
     this.continueStack = [];
   }
@@ -57,6 +65,7 @@ class CodeGen {
     // First pass: register all function names and global variables
     for (const decl of this.ast.body) {
       if (decl.type === 'FunctionDecl') {
+        this.localFunctionNames.add(decl.name);
         this.functionNames.set(decl.name, this.functionNames.size);
       } else if (decl.type === 'VarDecl') {
         const idx = this.globals.size;
@@ -457,17 +466,36 @@ class CodeGen {
         for (const arg of node.args) {
           this.genExpr(arg);
         }
-        const fnIdx = this.functionNames.get(node.name);
-        if (fnIdx !== undefined) {
+        if (this.localFunctionNames.has(node.name)) {
+          // Local function — CALL_LOCAL
+          const fnIdx = this.functionNames.get(node.name);
           this.emitter.emitOp(OP.CALL_LOCAL);
           this.emitter.emitShort(fnIdx);
           this.emitter.emit(node.args.length);
+        } else if (this.inheritedFunctions.has(node.name)) {
+          // Inherited function — CALL_INHERITED
+          const nameIdx = this.emitter.addString(node.name);
+          this.emitter.emitOp(OP.CALL_INHERITED);
+          this.emitter.emitShort(nameIdx);
+          this.emitter.emit(node.args.length);
         } else {
+          // Unknown — assume efun
           const nameIdx = this.emitter.addString(node.name);
           this.emitter.emitOp(OP.CALL_EFUN);
           this.emitter.emitShort(nameIdx);
           this.emitter.emit(node.args.length);
         }
+        break;
+      }
+
+      case 'ScopeCallExpression': {
+        for (const arg of node.args) {
+          this.genExpr(arg);
+        }
+        const nameIdx = this.emitter.addString(node.name);
+        this.emitter.emitOp(OP.CALL_INHERITED);
+        this.emitter.emitShort(nameIdx);
+        this.emitter.emit(node.args.length);
         break;
       }
 
@@ -605,4 +633,59 @@ export function compile(source, filename = '<input>') {
   const prog = gen.compile();
   prog.filename = filename;
   return prog;
+}
+
+export function compileWithInherit(filename, files) {
+  const cache = new Map();
+
+  function compileFile(fname) {
+    if (cache.has(fname)) return cache.get(fname);
+    // Try with and without .c extension
+    const source = files[fname] ?? files[fname + '.c'] ?? files[fname.replace(/\.c$/, '')];
+    if (source === undefined) throw new Error(`File not found: ${fname}`);
+    const ast = parse(source, fname);
+
+    // Separate inherits from other declarations
+    const inheritPrograms = [];
+    const bodyWithoutInherits = [];
+    for (const decl of ast.body) {
+      if (decl.type === 'InheritDecl') {
+        const parentFile = decl.path.endsWith('.c') ? decl.path : decl.path + '.c';
+        const parentProg = compileFile(parentFile);
+        inheritPrograms.push(parentProg);
+      } else {
+        bodyWithoutInherits.push(decl);
+      }
+    }
+
+    const gen = new CodeGen(AST.program(bodyWithoutInherits, ast.line));
+    gen.inheritPrograms = inheritPrograms;
+
+    // Register inherited functions and variables before compile
+    for (const parent of inheritPrograms) {
+      const funcOffset = gen.functionNames.size;
+      const varOffset = gen.globals.size;
+      for (const fn of parent.functions) {
+        if (!gen.inheritedFunctions.has(fn.name)) {
+          gen.inheritedFunctions.set(fn.name, { fn, program: parent });
+        }
+      }
+      for (const v of parent.variables) {
+        if (!gen.globals.has(v.name)) {
+          gen.globals.set(v.name, gen.globals.size);
+          gen.emitter.variables.push({ name: v.name, type: v.type });
+        }
+      }
+      gen.emitter.inherits.push({ program: parent, funcOffset, varOffset });
+    }
+
+    const prog = gen.compile();
+    prog.filename = fname;
+    prog.inherits = gen.emitter.inherits;
+
+    cache.set(fname, prog);
+    return prog;
+  }
+
+  return compileFile(filename);
 }

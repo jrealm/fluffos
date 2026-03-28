@@ -301,6 +301,30 @@ export class Machine {
           break;
         }
 
+        case OP.CALL_INHERITED: {
+          const nameIdx = this.readShort();
+          const argCount = bc[this.pc++];
+          const args = [];
+          for (let i = 0; i < argCount; i++) {
+            args.unshift(this.stack.pop());
+          }
+          const name = this.currentProgram.strings[nameIdx];
+          const found = this.currentProgram.findInheritedFunction(name);
+          if (found) {
+            const savedProgram = this.currentProgram;
+            const savedGlobals = this.globals;
+            this.currentProgram = found.program;
+            // Share globals — inherited functions access the same global variable space
+            const result = this.callFunction(found.fn, args);
+            this.currentProgram = savedProgram;
+            this.globals = savedGlobals;
+            this.stack.push(result);
+          } else {
+            throw new Error(`Inherited function not found: ${name}`);
+          }
+          break;
+        }
+
         case OP.RETURN:
           return this.stack.pop();
 
