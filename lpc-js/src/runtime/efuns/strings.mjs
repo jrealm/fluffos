@@ -25,4 +25,11 @@ export function registerStringEfuns(reg) {
   });
 
   reg.register('trim', (args) => mkString(args[0].value.trim()));
+
+  reg.register('strsrch', (args) => {
+    const str = args[0].value;
+    const substr = args[1].value;
+    const offset = args[2]?.value ?? 0;
+    return mkInt(str.indexOf(substr, offset));
+  });
 }

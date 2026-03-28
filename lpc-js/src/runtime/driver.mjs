@@ -6,8 +6,10 @@ import { CommandManager } from './commands.mjs';
 import { Server } from '../net/server.mjs';
 import { CONN_LOGGED_IN } from '../net/connection.mjs';
 import { registerInteractiveEfuns } from './efuns/interactive.mjs';
+import { registerSaveEfuns } from './efuns/save.mjs';
+import { registerFileEfuns } from './efuns/files.mjs';
 import { apply, setMachine, setApplyHook } from './apply.mjs';
-import { mkInt, mkString, SVALUE_ZERO, T_OBJECT } from '../vm/svalue.mjs';
+import { mkInt, mkString, mkArray, SVALUE_ZERO, T_OBJECT } from '../vm/svalue.mjs';
 
 export class Driver {
   constructor(config, options = {}) {
@@ -51,9 +53,14 @@ export class Driver {
     this.server = null;
     this.currentPlayer = null;
     this._notifyFailMsg = null;
+    this._currentVerb = null;
     this.apply = apply;
 
     registerInteractiveEfuns(this.efuns, this);
+    registerSaveEfuns(this.efuns, this);
+
+    const mudlibDir = config['mudlib directory'] ?? '/';
+    registerFileEfuns(this.efuns, mudlibDir);
   }
 
   _registerDriverEfuns() {
@@ -129,6 +136,60 @@ export class Driver {
         }
       }
       return SVALUE_ZERO;
+    });
+
+    this.efuns.register('previous_object', () => {
+      return driver.currentObject ? { type: T_OBJECT, value: driver.currentObject } : SVALUE_ZERO;
+    });
+
+    this.efuns.register('query_verb', () => {
+      return driver._currentVerb ? mkString(driver._currentVerb) : SVALUE_ZERO;
+    });
+
+    this.efuns.register('enable_commands', () => {
+      if (driver.currentObject) driver.currentObject.commandsEnabled = true;
+      return SVALUE_ZERO;
+    });
+
+    this.efuns.register('disable_commands', () => {
+      if (driver.currentObject) driver.currentObject.commandsEnabled = false;
+      return SVALUE_ZERO;
+    });
+
+    this.efuns.register('set_living_name', (args) => {
+      if (driver.currentObject) driver.currentObject.livingName = args[0].value;
+      return SVALUE_ZERO;
+    });
+
+    this.efuns.register('load_object', (args) => {
+      const path = args[0].value;
+      const obj = driver.objects.load(path.endsWith('.c') ? path : path + '.c');
+      return { type: T_OBJECT, value: obj };
+    });
+
+    this.efuns.register('children', (args) => {
+      const fname = args[0].value;
+      const result = [];
+      for (const [, obj] of driver.objects.objects) {
+        if (obj.filename === fname || obj.filename === fname + '.c') {
+          result.push({ type: T_OBJECT, value: obj });
+        }
+      }
+      return mkArray(result);
+    });
+
+    this.efuns.register('command', (args) => {
+      const cmd = args[0].value;
+      if (driver.currentObject && driver.currentObject.interactive) {
+        driver._handleInput(driver.currentObject.interactive, cmd);
+        return mkInt(1);
+      }
+      return SVALUE_ZERO;
+    });
+
+    this.efuns.register('query_heart_beat', (args) => {
+      const obj = args.length > 0 && args[0].type === T_OBJECT ? args[0].value : driver.currentObject;
+      return mkInt(obj && driver.heartBeatList.has(obj) ? 1 : 0);
     });
   }
 

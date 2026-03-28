@@ -1,5 +1,6 @@
-import { mkInt, mkString, mkFloat, mkArray, T_INT, T_STRING, T_FLOAT, T_ARRAY, T_MAPPING, T_OBJECT, T_FUNCTION, T_BUFFER, SVALUE_ZERO } from '../../vm/svalue.mjs';
+import { mkInt, mkString, mkFloat, mkArray, mkMapping, T_INT, T_STRING, T_FLOAT, T_ARRAY, T_MAPPING, T_OBJECT, T_FUNCTION, T_BUFFER, SVALUE_ZERO } from '../../vm/svalue.mjs';
 import { getMachine } from '../apply.mjs';
+import { createHash } from 'node:crypto';
 
 const TYPE_NAMES = {
   [T_INT]: 'int',
@@ -113,5 +114,36 @@ export function registerMiscEfuns(reg) {
       }
     }
     return mkArray(results);
+  });
+
+  reg.register('allocate_mapping', () => {
+    return mkMapping(new Map());
+  });
+
+  reg.register('localtime', (args) => {
+    const ts = args[0].value * 1000;
+    const d = new Date(ts);
+    return mkArray([
+      mkInt(d.getSeconds()),
+      mkInt(d.getMinutes()),
+      mkInt(d.getHours()),
+      mkInt(d.getDate()),
+      mkInt(d.getMonth()),
+      mkInt(d.getFullYear() - 1900),
+      mkInt(d.getDay()),
+      mkInt(Math.floor((d - new Date(d.getFullYear(), 0, 1)) / 86400000)),
+      mkInt(0),
+    ]);
+  });
+
+  reg.register('hash', (args) => {
+    const algo = args[0].value;
+    const data = args[1].value;
+    return mkString(createHash(algo).update(data).digest('hex'));
+  });
+
+  reg.register('crypt', (args) => {
+    const data = args[0].value;
+    return mkString(createHash('md5').update(data).digest('hex').slice(0, 13));
   });
 }

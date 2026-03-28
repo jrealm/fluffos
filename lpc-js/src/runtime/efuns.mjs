@@ -2,6 +2,9 @@ import { registerStringEfuns } from './efuns/strings.mjs';
 import { registerArrayEfuns } from './efuns/arrays.mjs';
 import { registerMappingEfuns } from './efuns/mappings.mjs';
 import { registerMiscEfuns } from './efuns/misc.mjs';
+import { registerTypeEfuns } from './efuns/types.mjs';
+import { registerObjectEfuns } from './efuns/objects.mjs';
+import { registerFileEfuns } from './efuns/files.mjs';
 
 export class EfunRegistry {
   constructor() {
@@ -22,10 +25,15 @@ export class EfunRegistry {
     return this.registry.has(name);
   }
 
-  loadDefaults() {
+  loadDefaults(options = {}) {
     registerStringEfuns(this);
     registerArrayEfuns(this);
     registerMappingEfuns(this);
     registerMiscEfuns(this);
+    registerTypeEfuns(this);
+    registerObjectEfuns(this);
+    if (options.mudlibDir) {
+      registerFileEfuns(this, options.mudlibDir);
+    }
   }
 }

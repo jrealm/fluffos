@@ -1,4 +1,5 @@
-import { mkInt, mkArray, T_ARRAY, T_MAPPING, T_STRING } from '../../vm/svalue.mjs';
+import { mkInt, mkArray, T_ARRAY, T_MAPPING, T_STRING, SVALUE_ZERO } from '../../vm/svalue.mjs';
+import { getMachine } from '../apply.mjs';
 
 export function registerArrayEfuns(reg) {
   reg.register('sizeof', (args) => {
@@ -39,5 +40,28 @@ export function registerArrayEfuns(reg) {
       }
     }
     return mkArray(result);
+  });
+
+  reg.register('allocate', (args) => {
+    return mkArray(new Array(args[0].value).fill(SVALUE_ZERO));
+  });
+
+  reg.register('filter_array', (args) => {
+    const arr = args[0].value;
+    const fp = args[1];
+    const vm = getMachine();
+    const result = [];
+    for (const item of arr) {
+      const r = vm._callFunctionPtr(fp.value, [item]);
+      if (r && r.value) result.push(item);
+    }
+    return mkArray(result);
+  });
+
+  reg.register('map_array', (args) => {
+    const arr = args[0].value;
+    const fp = args[1];
+    const vm = getMachine();
+    return mkArray(arr.map(item => vm._callFunctionPtr(fp.value, [item])));
   });
 }
