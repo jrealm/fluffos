@@ -5,11 +5,13 @@ FluffOS 2.28 相容的 LPC MUD 驅動器，用純 JavaScript (ES Modules) 在 No
 ## 需求
 
 - Node.js 20+
+- Yarn 4+
 
 ## 快速開始
 
 ```bash
-npm test  # 執行所有測試
+yarn install  # 安裝依賴
+yarn test     # 執行所有測試
 ```
 
 ## 架構
