@@ -161,12 +161,23 @@ export function tokenize(source, file = '<input>') {
       continue;
     }
 
-    // Lambda parameter: $1, $2, etc.
-    if (ch() === '$' && peek() >= '0' && peek() <= '9') {
-      advance(); // skip $
-      let num = '';
-      while (pos < source.length && ch() >= '0' && ch() <= '9') num += advance();
-      tokens.push(token(T.IDENT, '$' + num, startLine, file));
+    // Lambda parameter: $1, $2, etc. or $(expr) evaluate syntax
+    if (ch() === '$') {
+      if (peek() >= '0' && peek() <= '9') {
+        advance(); // skip $
+        let num = '';
+        while (pos < source.length && ch() >= '0' && ch() <= '9') num += advance();
+        tokens.push(token(T.IDENT, '$' + num, startLine, file));
+        continue;
+      }
+      if (peek() === '(') {
+        // $(expr) — lambda inline evaluate: just emit (expr) — the $ is elided
+        advance(); // skip $
+        // Don't skip ( — let normal parsing handle it as parenthesized expression
+        continue;
+      }
+      // Bare $ — skip it (shouldn't happen but be safe)
+      advance();
       continue;
     }
 

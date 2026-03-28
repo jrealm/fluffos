@@ -439,12 +439,33 @@ class Parser {
     while (!this.at(T.RBRACE) && !this.at(T.EOF)) {
       if (this.match(T.CASE)) {
         const test = this.parseExpression();
-        this.expect(T.COLON);
-        const body = [];
-        while (!this.at(T.CASE) && !this.at(T.DEFAULT) && !this.at(T.RBRACE) && !this.at(T.EOF)) {
-          body.push(this.parseStatement());
+        // Case range: case expr1 .. expr2:
+        if (this.match(T.DOT_DOT)) {
+          const test2 = this.parseExpression();
+          this.expect(T.COLON);
+          const body = [];
+          while (!this.at(T.CASE) && !this.at(T.DEFAULT) && !this.at(T.RBRACE) && !this.at(T.EOF)) {
+            body.push(this.parseStatement());
+          }
+          // Expand range into individual cases — body only on the last one
+          if (test.type === 'IntLiteral' && test2.type === 'IntLiteral') {
+            for (let v = test.value; v < test2.value; v++) {
+              cases.push(AST.switchCase(AST.intLiteral(v, test.line), [], test.line));
+            }
+            cases.push(AST.switchCase(AST.intLiteral(test2.value, test.line), body, test.line));
+          } else {
+            // Non-int range — just emit first and last with body on last
+            cases.push(AST.switchCase(test, [], test.line));
+            cases.push(AST.switchCase(test2, body, test.line));
+          }
+        } else {
+          this.expect(T.COLON);
+          const body = [];
+          while (!this.at(T.CASE) && !this.at(T.DEFAULT) && !this.at(T.RBRACE) && !this.at(T.EOF)) {
+            body.push(this.parseStatement());
+          }
+          cases.push(AST.switchCase(test, body, test.line));
         }
-        cases.push(AST.switchCase(test, body, test.line));
       } else if (this.match(T.DEFAULT)) {
         this.expect(T.COLON);
         const body = [];
