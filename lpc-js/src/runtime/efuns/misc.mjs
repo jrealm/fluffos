@@ -2,6 +2,7 @@ import { mkInt, mkString, mkFloat, mkArray, mkMapping, mkFunction, T_INT, T_STRI
 import { getMachine } from '../apply.mjs';
 import { createHash } from 'node:crypto';
 import { hostname } from 'node:os';
+import { Buffer } from 'node:buffer';
 
 const TYPE_NAMES = {
   [T_INT]: 'int',
@@ -202,5 +203,55 @@ export function registerMiscEfuns(reg) {
     if (fp.type !== T_FUNCTION || obj.type !== T_OBJECT) return SVALUE_ZERO;
     const newFp = { ...fp.value, boundObj: obj.value };
     return mkFunction(newFp);
+  });
+
+  // base64_encode: encode string/buffer to base64
+  reg.register('base64_encode', (args) => {
+    const input = args[0].type === T_BUFFER
+      ? args[0].value
+      : Buffer.from(args[0].value);
+    return mkString(input.toString('base64'));
+  });
+
+  // base64_decode: decode base64 string to buffer
+  reg.register('base64_decode', (args) => {
+    const decoded = Buffer.from(args[0].value, 'base64');
+    return { type: T_BUFFER, value: decoded };
+  });
+
+  // sha1: compute SHA1 hash, returns raw bytes (20 bytes) or hex string
+  reg.register('sha1', (args) => {
+    const input = args[0].type === T_BUFFER
+      ? args[0].value
+      : Buffer.from(args[0].value);
+    const digest = createHash('sha1').update(input).digest();
+    return { type: T_BUFFER, value: digest };
+  });
+
+  // current_time_millis: millisecond-precision timestamp
+  reg.register('current_time_millis', () => {
+    return mkInt(Date.now());
+  });
+
+  // filter: generic filter for arrays, mappings, and strings
+  reg.register('filter', (args) => {
+    const collection = args[0];
+    const func = args[1];
+    // Delegate to existing filter_array for arrays
+    if (collection.type === T_ARRAY) {
+      const filterArray = getMachine()?.efunHandler;
+      if (filterArray) return filterArray('filter_array', args);
+    }
+    return SVALUE_ZERO;
+  });
+
+  // map: generic map for arrays, mappings, and strings
+  reg.register('map', (args) => {
+    const collection = args[0];
+    if (collection.type === T_ARRAY) {
+      const mapHandler = getMachine()?.efunHandler;
+      if (mapHandler) return mapHandler('map_array', args);
+    }
+    return SVALUE_ZERO;
   });
 }

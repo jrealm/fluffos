@@ -249,4 +249,31 @@ export function registerInteractiveEfuns(reg, driver) {
     }
     return SVALUE_ZERO;
   });
+
+  // websocket_handshake_done: complete WebSocket upgrade for current connection
+  reg.register('websocket_handshake_done', () => {
+    if (driver.currentObject?.interactive) {
+      const conn = driver.currentObject.interactive;
+      conn.protocol = 'websocket';
+      conn.websocketReady = true;
+    }
+    return SVALUE_ZERO;
+  });
+
+  // enable_player: re-enable player input processing
+  reg.register('enable_player', () => {
+    if (driver.currentObject) {
+      driver.currentObject.commandsEnabled = true;
+      driver.currentObject._playerDisabled = false;
+    }
+    return SVALUE_ZERO;
+  });
+
+  // disable_player: temporarily disable player input processing
+  reg.register('disable_player', () => {
+    if (driver.currentObject) {
+      driver.currentObject._playerDisabled = true;
+    }
+    return SVALUE_ZERO;
+  });
 }
