@@ -1,4 +1,5 @@
-import { mkInt, mkString, mkArray, mkMapping, SVALUE_ZERO, mappingKey } from '../../vm/svalue.mjs';
+import { mkInt, mkString, mkArray, mkMapping, SVALUE_ZERO, mappingKey, T_FUNCTION } from '../../vm/svalue.mjs';
+import { getMachine } from '../apply.mjs';
 
 export class DatabaseManager {
   constructor() {
@@ -98,6 +99,40 @@ export function registerDatabaseEfuns(reg) {
   reg.register('db_status', () => {
     const count = dbm.connections.size;
     return mkString(`${count} open connection(s)`);
+  });
+
+  reg.register('async_db_exec', (args) => {
+    const handle = args[0].value;
+    const sql = args[1].value;
+    const callback = args[2];
+    const conn = dbm.connections.get(handle);
+    if (!conn) return SVALUE_ZERO;
+
+    try {
+      const queryResult = conn.client.query(sql);
+      if (queryResult && queryResult.then) {
+        queryResult.then(r => {
+          conn.lastResult = r;
+          if (callback?.type === T_FUNCTION) {
+            const vm = getMachine();
+            if (vm) {
+              try {
+                vm._callFunctionPtr(callback.value, [dbm._rowsToArray(r.rows ?? [])]);
+              } catch {}
+            }
+          }
+        }).catch(() => {
+          if (callback?.type === T_FUNCTION) {
+            const vm = getMachine();
+            if (vm) {
+              try { vm._callFunctionPtr(callback.value, [SVALUE_ZERO]); } catch {}
+            }
+          }
+        });
+        return mkInt(1);
+      }
+    } catch {}
+    return SVALUE_ZERO;
   });
 
   return dbm;

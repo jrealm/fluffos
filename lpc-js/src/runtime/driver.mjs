@@ -570,6 +570,120 @@ export class Driver {
 
       return mkInt(child.pid ?? 0);
     });
+
+    // debug_info(flag, ob) — return debug information about an object
+    this.efuns.register('debug_info', (args) => {
+      const flag = args[0].value;
+      const obj = args[1]?.type === T_OBJECT ? args[1].value : driver.currentObject;
+      if (!obj) return SVALUE_ZERO;
+
+      if (flag === 0) {
+        // Basic object info
+        const lines = [
+          `O_FILE_NAME: ${obj.filename}`,
+          `O_OBJECT_ID: ${obj.objectId}`,
+          `O_CLONE_NUM: ${obj.cloneNumber}`,
+          `O_FLAGS: ${obj.flags}`,
+          `O_NUM_VARS: ${obj.variables?.length ?? 0}`,
+          `O_NUM_FUNCS: ${obj.program?.functions?.length ?? 0}`,
+          `O_UID: ${obj.uid}`,
+          `O_EUID: ${obj.euid}`,
+          `O_HEART_BEAT: ${driver.heartBeatList.has(obj) ? 1 : 0}`,
+          `O_INTERACTIVE: ${obj.interactive ? 1 : 0}`,
+          `O_ENVIRONMENT: ${obj.environment?.objectId ?? 'NONE'}`,
+          `O_INVENTORY: ${obj.inventory?.size ?? 0}`,
+          `O_LIVING_NAME: ${obj.livingName ?? 'NONE'}`,
+        ];
+        return mkString(lines.join('\n'));
+      }
+
+      if (flag === 1) {
+        // Program info — list functions
+        if (!obj.program) return mkString('No program');
+        const funcs = obj.program.functions.map(f =>
+          `${f.name}(${f.numArgs} args, ${f.numLocals} locals)`
+        );
+        return mkString(funcs.join('\n'));
+      }
+
+      if (flag === 2) {
+        // Variables with values
+        if (!obj.program) return mkString('No program');
+        const vars = obj.program.variables.map((v, i) => {
+          const val = obj.variables[i];
+          return `${v.name} = ${val?.value ?? 0}`;
+        });
+        return mkString(vars.join('\n'));
+      }
+
+      return SVALUE_ZERO;
+    });
+
+    // dump_prog(ob) — disassemble program bytecode
+    this.efuns.register('dump_prog', (args) => {
+      const obj = args[0]?.type === T_OBJECT ? args[0].value : driver.currentObject;
+      if (!obj?.program) return mkString('No program');
+      const prog = obj.program;
+      const lines = [`Program: ${prog.filename}`];
+      lines.push(`Functions: ${prog.functions.length}`);
+      lines.push(`Variables: ${prog.variables.length}`);
+      lines.push(`Strings: ${prog.strings.length}`);
+      lines.push(`Inherits: ${prog.inherits.length}`);
+      lines.push(`Bytecode: ${prog.bytecode.length} bytes`);
+      lines.push('');
+      for (const fn of prog.functions) {
+        lines.push(`  ${fn.name}: offset=${fn.offset}, args=${fn.numArgs}, locals=${fn.numLocals}`);
+      }
+      return mkString(lines.join('\n'));
+    });
+
+    // trace(level) — set execution tracing level
+    this.efuns.register('trace', (args) => {
+      const level = args[0].value;
+      const oldLevel = driver.vm._traceLevel ?? 0;
+      driver.vm._traceLevel = level;
+      return mkInt(oldLevel);
+    });
+
+    // traceprefix(prefix) — set trace prefix filter
+    this.efuns.register('traceprefix', (args) => {
+      const prefix = args[0].type === T_STRING ? args[0].value : null;
+      const old = driver.vm._tracePrefix ?? SVALUE_ZERO;
+      driver.vm._tracePrefix = prefix;
+      return old ? mkString(old) : SVALUE_ZERO;
+    });
+
+    // reload_object(ob) — recompile and reload an object's program
+    this.efuns.register('reload_object', (args) => {
+      const obj = args[0]?.type === T_OBJECT ? args[0].value : null;
+      if (!obj || obj.isDestructed()) return SVALUE_ZERO;
+
+      // Clear program cache so it recompiles
+      driver.objects.programCache.delete(obj.filename);
+
+      // Recompile
+      try {
+        const newProg = driver.objects._compile(obj.filename);
+        obj.program = newProg;
+        // Resize variables array to match new program
+        const newVars = new Array(newProg.variables.length).fill(SVALUE_ZERO);
+        // Preserve existing variable values by name
+        const oldProg = obj.program;
+        for (let i = 0; i < newProg.variables.length; i++) {
+          const name = newProg.variables[i].name;
+          if (oldProg?.variables) {
+            const oldIdx = oldProg.variables.findIndex(v => v.name === name);
+            if (oldIdx >= 0 && oldIdx < obj.variables.length) {
+              newVars[i] = obj.variables[oldIdx];
+            }
+          }
+        }
+        obj.variables = newVars;
+        return mkInt(1);
+      } catch {
+        return SVALUE_ZERO;
+      }
+    });
   }
 
   mainLoop() {
