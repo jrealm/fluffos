@@ -87,6 +87,9 @@ export const OP = {
   CALL_FUNCTION_PTR: 0x77,
   MAKE_CLOSURE:      0x78,
 
+  // Index store
+  STORE_INDEX:       0x79,
+
   // Special
   CATCH:        0xA0,
   END_CATCH:    0xA1,

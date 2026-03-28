@@ -780,6 +780,15 @@ class CodeGen {
       return;
     }
 
+    // Index assignment: arr[i] = x, map[k] = v
+    if (node.left.type === 'IndexExpression' || node.left.type === 'NegativeIndex') {
+      this.genExpr(node.left.object); // [collection]
+      this.genExpr(node.left.index);  // [collection, index]
+      this.genExpr(node.right);       // [collection, index, value]
+      this.emitter.emitOp(OP.STORE_INDEX); // pops 3, pushes value
+      return;
+    }
+
     const av = this.resolveVar(node.left.name);
     if (!av) throw new Error(`Undefined variable: ${node.left.name}`);
 

@@ -445,6 +445,30 @@ export class Machine {
           break;
         }
 
+        case OP.STORE_INDEX: {
+          const value = this.stack.pop();
+          const index = this.stack.pop();
+          const obj = this.stack.pop();
+          if (obj.type === T_ARRAY) {
+            const idx = index.value;
+            if (idx >= 0 && idx < obj.value.length) {
+              obj.value[idx] = value;
+            } else if (idx >= obj.value.length) {
+              // Auto-extend array
+              while (obj.value.length <= idx) obj.value.push(SVALUE_ZERO);
+              obj.value[idx] = value;
+            }
+          } else if (obj.type === T_MAPPING) {
+            obj.value.set(mappingKey(index), { key: index, value });
+          } else if (obj.type === T_BUFFER) {
+            obj.value[index.value] = value.value & 0xFF;
+          } else {
+            throw new RuntimeError(`Cannot assign to index of type ${obj.type}`);
+          }
+          this.stack.push(value);
+          break;
+        }
+
         case OP.RINDEX: {
           const index = this.stack.pop();
           const obj = this.stack.pop();
