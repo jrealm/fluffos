@@ -28,8 +28,12 @@ export function registerStringEfuns(reg) {
 
   reg.register('strsrch', (args) => {
     const str = args[0].value;
-    const substr = args[1].value;
-    const offset = args[2]?.value ?? 0;
-    return mkInt(str.indexOf(substr, offset));
+    let needle = args[1].value;
+    const flag = args[2]?.value ?? 0;
+    // If needle is int, convert to character
+    if (typeof needle === 'number') needle = String.fromCharCode(needle);
+    // flag -1 = reverse search (lastIndexOf)
+    if (flag === -1) return mkInt(str.lastIndexOf(needle));
+    return mkInt(str.indexOf(needle, flag));
   });
 }

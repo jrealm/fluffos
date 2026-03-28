@@ -781,10 +781,19 @@ export class Driver {
   }
 
   loadSimulEfun() {
+    // Try master->get_simul_efun() first, fallback to config
+    let simulPath;
     const pathResult = apply('get_simul_efun', this.master, []);
-    if (!pathResult || pathResult.type !== T_STRING) return;
+    if (pathResult && pathResult.type === T_STRING) {
+      simulPath = pathResult.value;
+    } else if (this.config['simul efun file']) {
+      simulPath = this.config['simul efun file'];
+    } else {
+      return;
+    }
+    if (!simulPath) return;
 
-    this.simulEfunObject = this.objects.load(pathResult.value);
+    this.simulEfunObject = this.objects.load(simulPath.endsWith('.c') ? simulPath : simulPath + '.c');
     this.simulEfunNames.clear();
     for (const func of this.simulEfunObject.program.functions) {
       if (func.name !== 'create') {

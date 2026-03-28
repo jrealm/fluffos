@@ -646,6 +646,9 @@ export class Machine {
         }
 
         default:
+          if (op === undefined) {
+            throw new RuntimeError(`PC out of bounds at pc=${this.pc - 1}, bytecode length=${bc.length}, function=${this._currentFunctionName}`);
+          }
           throw new RuntimeError(`Unknown opcode: 0x${op.toString(16)} at pc=${this.pc - 1}`);
       } } catch (e) {
         if (this._catchStack.length > catchBase) {

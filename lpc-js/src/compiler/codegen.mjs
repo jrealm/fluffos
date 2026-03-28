@@ -73,11 +73,23 @@ class CodeGen {
     for (const decl of this.ast.body) {
       if (decl.type === 'FunctionDecl') {
         this.localFunctionNames.add(decl.name);
-        this.functionNames.set(decl.name, this.functionNames.size);
+        // Only assign function index for actual definitions (not prototypes)
+        if (decl.body && !this.functionNames.has(decl.name)) {
+          this.functionNames.set(decl.name, this.functionNames.size);
+        }
       } else if (decl.type === 'VarDecl') {
-        const idx = this.globals.size;
-        this.globals.set(decl.name, idx);
-        this.emitter.variables.push({ name: decl.name, type: decl.varType });
+        if (!this.globals.has(decl.name)) {
+          this.globals.set(decl.name, this.globals.size);
+          this.emitter.variables.push({ name: decl.name, type: decl.varType });
+        }
+      } else if (decl.type === 'Block') {
+        // Multi-variable global declaration
+        for (const s of decl.statements) {
+          if (s.type === 'VarDecl' && !this.globals.has(s.name)) {
+            this.globals.set(s.name, this.globals.size);
+            this.emitter.variables.push({ name: s.name, type: s.varType });
+          }
+        }
       } else if (decl.type === 'ClassDecl') {
         this.classDefs.set(decl.name, decl.members);
       }
@@ -88,10 +100,8 @@ class CodeGen {
       if (decl.type === 'FunctionDecl' && decl.body) {
         this.compileFunction(decl);
       } else if (decl.type === 'FunctionDecl' && !decl.body) {
-        this.emitter.functions.push({
-          name: decl.name, numArgs: decl.params.length, numLocals: 0,
-          offset: -1, flags: 0, type: 0,
-        });
+        // Function prototype (forward declaration) — skip, don't add to function table.
+        // The actual definition will be added when compiled.
       }
     }
 
@@ -424,6 +434,8 @@ class CodeGen {
 
   genForeach(node) {
     this.genExpr(node.expr);
+    this.breakStack.push([]);
+    this.continueStack.push([]);
 
     if (node.vars.length === 1) {
       const v = this.resolveVar(node.vars[0].name);
@@ -437,10 +449,20 @@ class CodeGen {
 
       this.genStatement(node.body);
 
+      // Patch continue holes to jump to loop start
+      for (const hole of this.continueStack[this.continueStack.length - 1]) {
+        this.emitter.patchShort(hole, loopStart);
+      }
+
       this.emitter.emitOp(OP.JUMP);
       this.emitter.emitShort(loopStart);
       this.emitter.patchShort(exitHole, this.emitter.currentOffset());
       this.emitter.emitOp(OP.FOREACH_END);
+
+      for (const hole of this.breakStack.pop()) {
+        this.emitter.patchShort(hole, this.emitter.currentOffset());
+      }
+      this.continueStack.pop();
     } else {
       const kv = this.resolveVar(node.vars[0].name);
       const vv = this.resolveVar(node.vars[1].name);
@@ -454,10 +476,19 @@ class CodeGen {
 
       this.genStatement(node.body);
 
+      for (const hole of this.continueStack[this.continueStack.length - 1]) {
+        this.emitter.patchShort(hole, loopStart);
+      }
+
       this.emitter.emitOp(OP.JUMP);
       this.emitter.emitShort(loopStart);
       this.emitter.patchShort(exitHole, this.emitter.currentOffset());
       this.emitter.emitOp(OP.FOREACH_END);
+
+      for (const hole of this.breakStack.pop()) {
+        this.emitter.patchShort(hole, this.emitter.currentOffset());
+      }
+      this.continueStack.pop();
     }
   }
 
@@ -563,6 +594,14 @@ class CodeGen {
       case 'CallExpression': {
         for (const arg of node.args) {
           this.genExpr(arg);
+        }
+        // efun::func() — direct efun call, bypass simul_efun
+        if (node.directEfun) {
+          const nameIdx = this.emitter.addString(node.name);
+          this.emitter.emitOp(OP.CALL_EFUN);
+          this.emitter.emitShort(nameIdx);
+          this.emitter.emit(node.args.length);
+          break;
         }
         if (this.localFunctionNames.has(node.name)) {
           // Local function — CALL_LOCAL

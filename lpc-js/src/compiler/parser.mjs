@@ -174,6 +174,22 @@ class Parser {
     if (this.match(T.EQ)) {
       init = this.parseExpression();
     }
+
+    // Multi-global: int a, b, c;
+    if (this.at(T.COMMA)) {
+      const decls = [AST.varDecl(typeName, name, init, flags, line)];
+      while (this.match(T.COMMA)) {
+        let vType = typeName;
+        if (this.match(T.STAR)) vType += '*';
+        const vName = this.expect(T.IDENT).value;
+        let vInit = null;
+        if (this.match(T.EQ)) vInit = this.parseExpression();
+        decls.push(AST.varDecl(vType, vName, vInit, flags, line));
+      }
+      this.expect(T.SEMICOLON);
+      return AST.block(decls, line);
+    }
+
     this.expect(T.SEMICOLON);
     return AST.varDecl(typeName, name, init, flags, line);
   }
@@ -725,8 +741,10 @@ class Parser {
         this.expect(T.LPAREN);
         const args = this.parseArgList();
         this.expect(T.RPAREN);
-        // Emit as regular efun call (codegen will use CALL_EFUN)
-        return AST.callExpr(funcName, args, tok.line);
+        // Direct efun call — bypass simul_efun
+        const node = AST.callExpr(funcName, args, tok.line);
+        node.directEfun = true;
+        return node;
       }
       if (this.at(T.LPAREN)) {
         this.advance();
