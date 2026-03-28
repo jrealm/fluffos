@@ -15,6 +15,10 @@ export class LpcObject {
     this.environment = null;
     this.inventory = new Set();
     this.interactive = null;
+    this.shadowedBy = null;
+    this.shadowTarget = null;
+    this.commandsEnabled = false;
+    this.livingName = null;
   }
 
   clone(cloneNumber) {

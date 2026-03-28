@@ -18,6 +18,14 @@ export function setApplyHook(hook) {
 export function apply(funcName, object, args) {
   if (!object || object.isDestructed()) return SVALUE_ZERO;
 
+  // Check shadow chain
+  if (object.shadowedBy && !object.shadowedBy.isDestructed()) {
+    const shadowFn = object.shadowedBy.program.findFunction(funcName);
+    if (shadowFn) {
+      return apply(funcName, object.shadowedBy, args);
+    }
+  }
+
   // Check local functions first, then inherited
   const fn = object.program.findFunction(funcName);
   const inherited = fn ? null : object.program.findInheritedFunction(funcName);

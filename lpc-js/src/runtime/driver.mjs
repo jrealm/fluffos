@@ -8,6 +8,8 @@ import { CONN_LOGGED_IN } from '../net/connection.mjs';
 import { registerInteractiveEfuns } from './efuns/interactive.mjs';
 import { registerSaveEfuns } from './efuns/save.mjs';
 import { registerFileEfuns } from './efuns/files.mjs';
+import { registerShadowEfuns } from './efuns/shadow.mjs';
+import { registerDatabaseEfuns } from './efuns/database.mjs';
 import { apply, setMachine, setApplyHook } from './apply.mjs';
 import { mkInt, mkString, mkArray, SVALUE_ZERO, T_OBJECT } from '../vm/svalue.mjs';
 
@@ -58,6 +60,8 @@ export class Driver {
 
     registerInteractiveEfuns(this.efuns, this);
     registerSaveEfuns(this.efuns, this);
+    registerShadowEfuns(this.efuns, this);
+    registerDatabaseEfuns(this.efuns);
 
     const mudlibDir = config['mudlib directory'] ?? '/';
     registerFileEfuns(this.efuns, mudlibDir);
