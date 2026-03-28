@@ -439,6 +439,9 @@ export class Machine {
             this.stack.push(mkInt(obj.value.charCodeAt(index.value)));
           } else if (obj.type === T_BUFFER) {
             this.stack.push(mkInt(obj.value[index.value]));
+          } else if (obj.type === T_INT && obj.value === 0) {
+            // Indexing 0 (uninitialized mapping/array) returns 0
+            this.stack.push(SVALUE_ZERO);
           } else {
             throw new RuntimeError(`Cannot index type ${obj.type}`);
           }

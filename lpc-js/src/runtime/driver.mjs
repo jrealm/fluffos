@@ -13,6 +13,7 @@ import { registerDatabaseEfuns } from './efuns/database.mjs';
 import { registerSnoopEfuns } from './efuns/snoop.mjs';
 import { registerSocketEfuns } from './efuns/sockets.mjs';
 import { registerContribEfuns } from './efuns/contrib.mjs';
+import { registerObjectEfuns } from './efuns/objects.mjs';
 import { registerEncodingEfuns } from './efuns/encoding.mjs';
 import { registerAsyncEfuns } from './efuns/async.mjs';
 import { registerCompressEfuns } from './efuns/compress.mjs';
@@ -74,10 +75,12 @@ export class Driver {
       before: (obj) => {
         const saved = self.currentObject;
         self.currentObject = obj;
+        self.vm._currentObject = obj;
         return saved;
       },
       after: (saved) => {
         self.currentObject = saved;
+        self.vm._currentObject = saved;
       },
     });
 
@@ -133,6 +136,7 @@ export class Driver {
     registerSnoopEfuns(this.efuns, this);
     registerSocketEfuns(this.efuns, this);
     registerContribEfuns(this.efuns, this);
+    registerObjectEfuns(this.efuns, this);
     registerEncodingEfuns(this.efuns, this);
     registerAsyncEfuns(this.efuns, this);
     registerCompressEfuns(this.efuns);
@@ -477,6 +481,10 @@ export class Driver {
 
     this.efuns.register('uptime', () => {
       return mkInt(Math.floor((Date.now() - driver.bootTime) / 1000));
+    });
+
+    this.efuns.register('boot_time', () => {
+      return mkInt(Math.floor(driver.bootTime / 1000));
     });
 
     this.efuns.register('commands', () => {

@@ -162,7 +162,13 @@ class Parser {
         params.push({ typeName: typeName + '...', name: null });
         break;
       }
-      const name = this.expect(T.IDENT).value;
+      // Parameter name is optional in prototypes (e.g., void foo(string);)
+      let name;
+      if (this.at(T.IDENT)) {
+        name = this.advance().value;
+      } else {
+        name = `_arg${params.length}`;
+      }
       params.push({ typeName, name });
     } while (this.match(T.COMMA));
     return params;
@@ -778,8 +784,10 @@ class Parser {
 
   parseArgList() {
     const args = [];
-    if (this.at(T.RPAREN)) return args;
-    do { args.push(this.parseExpression()); } while (this.match(T.COMMA));
+    while (!this.at(T.RPAREN) && !this.at(T.EOF)) {
+      args.push(this.parseExpression());
+      if (!this.match(T.COMMA)) break;
+    }
     return args;
   }
 }

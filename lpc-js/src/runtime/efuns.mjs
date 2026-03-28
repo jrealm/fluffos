@@ -38,7 +38,7 @@ export class EfunRegistry {
     registerMappingEfuns(this);
     registerMiscEfuns(this);
     registerTypeEfuns(this);
-    registerObjectEfuns(this);
+    registerObjectEfuns(this, null);
     registerRegexEfuns(this);
     registerSprintfEfuns(this);
     registerBitEfuns(this);
