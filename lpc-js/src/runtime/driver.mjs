@@ -51,6 +51,14 @@ export class Driver {
       apply(func, obj, args);
     };
 
+    // Set UIDs on newly created objects
+    this.objects.onObjectCreated = (obj) => {
+      // Default: derive uid from filename path (first directory component)
+      const parts = obj.filename.split('/').filter(Boolean);
+      obj.uid = parts.length > 1 ? parts[0] : 'root';
+      obj.euid = obj.uid;
+    };
+
     this.commands = new CommandManager();
     this.server = null;
     this.currentPlayer = null;
@@ -195,11 +203,128 @@ export class Driver {
       const obj = args.length > 0 && args[0].type === T_OBJECT ? args[0].value : driver.currentObject;
       return mkInt(obj && driver.heartBeatList.has(obj) ? 1 : 0);
     });
+
+    // UID permission system
+    this.efuns.register('getuid', (args) => {
+      const obj = args.length > 0 && args[0].type === T_OBJECT ? args[0].value : driver.currentObject;
+      return obj ? mkString(obj.uid || '') : SVALUE_ZERO;
+    });
+
+    this.efuns.register('geteuid', (args) => {
+      const obj = args.length > 0 && args[0].type === T_OBJECT ? args[0].value : driver.currentObject;
+      return obj ? mkString(obj.euid || '') : SVALUE_ZERO;
+    });
+
+    this.efuns.register('seteuid', (args) => {
+      if (driver.currentObject) {
+        driver.currentObject.euid = args[0].value;
+        return mkInt(1);
+      }
+      return SVALUE_ZERO;
+    });
+
+    this.efuns.register('export_uid', () => {
+      // In FluffOS this transfers uid from caller to target; simplified version
+      return SVALUE_ZERO;
+    });
+
+    // exec: transfer interactive connection between objects
+    this.efuns.register('exec', (args) => {
+      const to = args[0].type === T_OBJECT ? args[0].value : null;
+      const from = args[1].type === T_OBJECT ? args[1].value : null;
+      if (!to || !from || !from.interactive) return SVALUE_ZERO;
+
+      // Transfer connection
+      const conn = from.interactive;
+      from.interactive = null;
+      to.interactive = conn;
+      conn.object = to;
+      return mkInt(1);
+    });
+
+    // replace_program: schedule program replacement
+    this.efuns.register('replace_program', (args) => {
+      const path = args[0].value;
+      if (!driver.currentObject) return SVALUE_ZERO;
+      const prog = driver.objects._compile(path.endsWith('.c') ? path : path + '.c');
+      driver.currentObject.replaceProgram(prog);
+      return SVALUE_ZERO;
+    });
+
+    // users: return all interactive objects
+    this.efuns.register('users', () => {
+      const result = [];
+      for (const [, obj] of driver.objects.objects) {
+        if (obj.interactive && !obj.isDestructed()) {
+          result.push({ type: T_OBJECT, value: obj });
+        }
+      }
+      return mkArray(result);
+    });
+
+    // find_living: find object by living name
+    this.efuns.register('find_living', (args) => {
+      const name = args[0].value;
+      for (const [, obj] of driver.objects.objects) {
+        if (obj.livingName === name && !obj.isDestructed()) {
+          return { type: T_OBJECT, value: obj };
+        }
+      }
+      return SVALUE_ZERO;
+    });
+
+    // find_player: find interactive by living name
+    this.efuns.register('find_player', (args) => {
+      const name = args[0].value;
+      for (const [, obj] of driver.objects.objects) {
+        if (obj.livingName === name && obj.interactive && !obj.isDestructed()) {
+          return { type: T_OBJECT, value: obj };
+        }
+      }
+      return SVALUE_ZERO;
+    });
+
+    // inherits: check if object inherits from a given file
+    this.efuns.register('inherits', (args) => {
+      const parentPath = args[0].value;
+      const obj = args[1]?.type === T_OBJECT ? args[1].value : driver.currentObject;
+      if (!obj) return SVALUE_ZERO;
+      for (const inh of obj.program.inherits) {
+        if (inh.program.filename === parentPath || inh.program.filename === parentPath + '.c') {
+          return mkInt(1);
+        }
+      }
+      return SVALUE_ZERO;
+    });
+
+    // error: raise a runtime error
+    this.efuns.register('error', (args) => {
+      throw new Error(args[0].value);
+    });
+
+    // log_file: append to a log file
+    this.efuns.register('log_file', (args) => {
+      const logDir = driver.config['log directory'] ?? '/log';
+      const writeFile = driver.efuns.registry.get('write_file');
+      if (writeFile) {
+        writeFile([mkString(logDir + '/' + args[0].value), mkString(args[1].value)]);
+      }
+      return SVALUE_ZERO;
+    });
   }
 
   mainLoop() {
     this.callOuts.tick();
     this.heartBeatTick();
+    this._processReplaceProgramQueue();
+  }
+
+  _processReplaceProgramQueue() {
+    for (const [, obj] of this.objects.objects) {
+      if (obj.replaceProgramPending) {
+        obj.applyReplaceProgram();
+      }
+    }
   }
 
   heartBeatTick() {

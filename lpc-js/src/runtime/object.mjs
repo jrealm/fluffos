@@ -19,13 +19,30 @@ export class LpcObject {
     this.shadowTarget = null;
     this.commandsEnabled = false;
     this.livingName = null;
+    this.uid = '';
+    this.euid = '';
+    this.replaceProgramPending = null;
   }
 
   clone(cloneNumber) {
     const obj = new LpcObject(this.filename, this.program);
     obj.cloneNumber = cloneNumber;
     obj.flags |= O_CLONE;
+    obj.uid = this.uid;
+    obj.euid = this.euid;
     return obj;
+  }
+
+  replaceProgram(newProgram) {
+    this.replaceProgramPending = newProgram;
+  }
+
+  applyReplaceProgram() {
+    if (this.replaceProgramPending) {
+      this.program = this.replaceProgramPending;
+      this.variables = new Array(this.replaceProgramPending.variables.length).fill(SVALUE_ZERO);
+      this.replaceProgramPending = null;
+    }
   }
 
   moveTo(dest) {

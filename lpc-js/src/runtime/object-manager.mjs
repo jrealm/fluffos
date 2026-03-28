@@ -9,6 +9,7 @@ export class ObjectManager {
     this.objects = new Map();
     this.cloneCounter = 0;
     this.programCache = new Map();
+    this.onObjectCreated = null; // callback: (obj) => void, for UID setup
   }
 
   load(filename) {
@@ -19,6 +20,7 @@ export class ObjectManager {
     const obj = new LpcObject(filename, prog);
     this.objects.set(filename, obj);
 
+    if (this.onObjectCreated) this.onObjectCreated(obj);
     apply('create', obj, []);
 
     return obj;
@@ -31,6 +33,7 @@ export class ObjectManager {
     const cloneId = `${filename}#${this.cloneCounter}`;
     this.objects.set(cloneId, clone);
 
+    if (this.onObjectCreated) this.onObjectCreated(clone);
     apply('create', clone, []);
 
     return clone;
