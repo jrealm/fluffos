@@ -2,7 +2,11 @@ import { Machine } from '../vm/machine.mjs';
 import { EfunRegistry } from './efuns.mjs';
 import { ObjectManager } from './object-manager.mjs';
 import { CallOutManager } from './callout.mjs';
-import { apply, setMachine } from './apply.mjs';
+import { CommandManager } from './commands.mjs';
+import { Server } from '../net/server.mjs';
+import { CONN_LOGGED_IN } from '../net/connection.mjs';
+import { registerInteractiveEfuns } from './efuns/interactive.mjs';
+import { apply, setMachine, setApplyHook } from './apply.mjs';
 import { mkInt, mkString, SVALUE_ZERO, T_OBJECT } from '../vm/svalue.mjs';
 
 export class Driver {
@@ -21,6 +25,18 @@ export class Driver {
     this.vm.maxEvalCost = parseInt(config['max eval cost'] ?? '1000000', 10);
     setMachine(this.vm);
 
+    const self = this;
+    setApplyHook({
+      before: (obj) => {
+        const saved = self.currentObject;
+        self.currentObject = obj;
+        return saved;
+      },
+      after: (saved) => {
+        self.currentObject = saved;
+      },
+    });
+
     const readFile = options.readFile ?? null;
     this.objects = new ObjectManager({
       readFile,
@@ -30,6 +46,14 @@ export class Driver {
     this.callOuts.onFire = (func, obj, args) => {
       apply(func, obj, args);
     };
+
+    this.commands = new CommandManager();
+    this.server = null;
+    this.currentPlayer = null;
+    this._notifyFailMsg = null;
+    this.apply = apply;
+
+    registerInteractiveEfuns(this.efuns, this);
   }
 
   _registerDriverEfuns() {
@@ -121,5 +145,97 @@ export class Driver {
       }
     }
     this.currentObject = null;
+  }
+
+  async startServer(port) {
+    this.server = new Server();
+    this.server.onConnection = (conn) => this._handleNewConnection(conn);
+    await this.server.listen(port);
+    return this.server.port;
+  }
+
+  _handleNewConnection(conn) {
+    const masterFile = this.config['master file'];
+    const master = this.objects.find(masterFile + '.c')
+                || this.objects.find(masterFile);
+    if (!master) {
+      conn.send('No master object.\n');
+      conn.close();
+      return;
+    }
+
+    const loginResult = apply('connect', master, []);
+    if (!loginResult || loginResult.value === 0) {
+      conn.send('Connection refused.\n');
+      conn.close();
+      return;
+    }
+
+    const loginObj = loginResult.type === T_OBJECT ? loginResult.value : null;
+    if (!loginObj) {
+      conn.send('Connection refused.\n');
+      conn.close();
+      return;
+    }
+
+    loginObj.interactive = conn;
+    conn.object = loginObj;
+    conn.state = CONN_LOGGED_IN;
+
+    this.currentObject = loginObj;
+    this.currentPlayer = loginObj;
+    apply('logon', loginObj, []);
+    this.currentObject = null;
+    this.currentPlayer = null;
+
+    conn.onLine = (line) => this._handleInput(conn, line);
+    conn.onClose = () => this._handleDisconnect(conn);
+  }
+
+  _handleInput(conn, line) {
+    const player = conn.object;
+    if (!player || player.isDestructed()) return;
+
+    this.currentObject = player;
+    this.currentPlayer = player;
+    this._notifyFailMsg = null;
+
+    const piResult = apply('process_input', player, [mkString(line)]);
+    if (piResult && piResult.value === 1) {
+      this.currentObject = null;
+      this.currentPlayer = null;
+      return;
+    }
+
+    const searchList = this.commands.getSearchList(player);
+    const handled = this.commands.dispatch(line, (func, obj, arg) => {
+      this.currentObject = obj;
+      const result = apply(func, obj, [mkString(arg)]);
+      return result && result.value;
+    }, searchList);
+
+    if (!handled && this._notifyFailMsg) {
+      conn.send(this._notifyFailMsg);
+    } else if (!handled) {
+      conn.send('What?\n');
+    }
+
+    this.currentObject = null;
+    this.currentPlayer = null;
+  }
+
+  _handleDisconnect(conn) {
+    const obj = conn.object;
+    if (obj) {
+      obj.interactive = null;
+      conn.object = null;
+    }
+  }
+
+  stopServer() {
+    if (this.server) {
+      this.server.close();
+      this.server = null;
+    }
   }
 }
