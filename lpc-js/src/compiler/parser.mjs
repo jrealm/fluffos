@@ -229,6 +229,12 @@ class Parser {
   parseStatement() {
     const tok = this.peek();
 
+    // Empty statement: ;
+    if (tok.type === T.SEMICOLON) {
+      this.advance();
+      return AST.expressionStatement(AST.intLiteral(0, tok.line), tok.line);
+    }
+
     if (tok.type === T.LBRACE) return this.parseBlock();
     if (tok.type === T.IF) return this.parseIf();
     if (tok.type === T.WHILE) return this.parseWhile();
@@ -399,12 +405,12 @@ class Parser {
       const varName = this.advance().value;
       vars.push({ typeName: 'mixed', name: varName });
     } else if (this.at(T.IDENT) && this.tokens[this.pos + 1]?.type === T.COMMA &&
-               this.tokens[this.pos + 2]?.type !== T.IDENT) {
+               this.tokens[this.pos + 3]?.type === T.IN) {
       // foreach (key, value in expr) — no types
       const key = this.advance().value;
       vars.push({ typeName: 'mixed', name: key });
       this.expect(T.COMMA);
-      const val = this.expect(T.IDENT).value;
+      const val = this.expectName().value;
       vars.push({ typeName: 'mixed', name: val });
     } else {
       // With types: foreach (type var in expr)
