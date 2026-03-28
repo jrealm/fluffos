@@ -46,17 +46,7 @@ export function registerMiscEfuns(reg) {
     return mkInt(Math.floor(Date.now() / 1000));
   });
 
-  reg.register('sprintf', (args) => {
-    let fmt = args[0].value;
-    let argIdx = 1;
-    const result = fmt.replace(/%[sd%]/g, (match) => {
-      if (match === '%%') return '%';
-      if (match === '%s') return String(args[argIdx++]?.value ?? '');
-      if (match === '%d') return String(Number(args[argIdx++]?.value ?? 0));
-      return match;
-    });
-    return mkString(result);
-  });
+  // sprintf moved to sprintf.mjs
 
   reg.register('write', () => SVALUE_ZERO);
 
