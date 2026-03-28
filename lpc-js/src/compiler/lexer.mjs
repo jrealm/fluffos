@@ -123,6 +123,36 @@ export function tokenize(source, file = '<input>') {
       continue;
     }
 
+    // Heredoc: @TAG\n...content...\nTAG
+    if (ch() === '@' && peek() !== undefined && /[A-Za-z_]/.test(peek())) {
+      advance(); // skip @
+      let tag = '';
+      while (pos < source.length && /[A-Za-z_0-9]/.test(ch())) tag += advance();
+      // Skip to next line
+      while (pos < source.length && ch() !== '\n') advance();
+      if (pos < source.length) advance(); // skip \n
+      // Read until TAG appears at start of line
+      let content = '';
+      while (pos < source.length) {
+        if (source.startsWith(tag, pos)) {
+          pos += tag.length;
+          break;
+        }
+        content += advance();
+      }
+      tokens.push(token(T.STRING_LIT, content, startLine, file));
+      continue;
+    }
+
+    // Lambda parameter: $1, $2, etc.
+    if (ch() === '$' && peek() >= '0' && peek() <= '9') {
+      advance(); // skip $
+      let num = '';
+      while (pos < source.length && ch() >= '0' && ch() <= '9') num += advance();
+      tokens.push(token(T.IDENT, '$' + num, startLine, file));
+      continue;
+    }
+
     // Number literal (int or float)
     if (ch() >= '0' && ch() <= '9') {
       let num = '';
