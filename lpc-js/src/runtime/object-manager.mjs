@@ -1,6 +1,7 @@
 import { LpcObject } from './object.mjs';
 import { apply } from './apply.mjs';
 import { compileWithInherit } from '../compiler/codegen.mjs';
+import { preprocess } from '../compiler/preprocessor.mjs';
 
 export class ObjectManager {
   constructor(options = {}) {
@@ -70,9 +71,19 @@ export class ObjectManager {
       }
       files[fname] = source;
 
+      // Preprocess to expand macros before searching for inherit declarations
+      const dir = fname.includes('/') ? fname.slice(0, fname.lastIndexOf('/') + 1) : '/';
+      const ppOpts = {
+        defines: { ...(self.compileDefines ?? {}), __FILE__: `"${fname}"`, __DIR__: `"${dir}"` },
+        includePaths: self.includePaths,
+        readFile: self.readFile,
+      };
+      let ppSource;
+      try { ppSource = preprocess(source, ppOpts).source; } catch { ppSource = source; }
+
       const inheritPattern = /inherit\s+"([^"]+)"\s*;/g;
       let match;
-      while ((match = inheritPattern.exec(source)) !== null) {
+      while ((match = inheritPattern.exec(ppSource)) !== null) {
         let path = match[1];
         if (!path.endsWith('.c')) path += '.c';
         collectFile(path);

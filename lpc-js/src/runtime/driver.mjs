@@ -53,6 +53,19 @@ export class Driver {
       return this.callSimulEfun(name, args);
     };
     this.vm.simulEfunHandler = (name, args) => this.callSimulEfun(name, args);
+    this.vm.callOtherHandler = (objSv, method, args) => {
+      let obj;
+      if (objSv.type === T_OBJECT) {
+        obj = objSv.value;
+      } else if (objSv.type === T_STRING) {
+        const path = objSv.value.endsWith('.c') ? objSv.value : objSv.value + '.c';
+        obj = this.objects.find(path) ?? this.objects.load(path);
+      } else {
+        return SVALUE_ZERO;
+      }
+      if (!obj || obj.isDestructed()) return SVALUE_ZERO;
+      return apply(method, obj, args);
+    };
     this.vm.maxEvalCost = parseInt(config['max eval cost'] ?? '1000000', 10);
     setMachine(this.vm);
 
@@ -77,6 +90,10 @@ export class Driver {
       __COMPILER__: '"lpc-js"',
       __VERSION__: '"1.0"',
       __PORT__: config['port number'] ?? '5000',
+      __SAVE_EXTENSION__: '".o"',
+      __HEARTBEAT_INTERVAL__: '1',
+      HAS_RUSAGE: '0',
+      HAS_DEBUG_LEVEL: '0',
     };
 
     this.objects = new ObjectManager({

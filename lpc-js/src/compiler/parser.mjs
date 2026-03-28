@@ -561,7 +561,15 @@ class Parser {
         const index = this.parseExpression();
         if (this.match(T.DOT_DOT)) {
           if (this.match(T.LT)) toReverse = true;
-          const to = this.parseExpression();
+          // Support open-ended range: arr[start..] means arr[start..<1]
+          let to;
+          if (this.at(T.RBRACKET)) {
+            // Open-ended: arr[start..] → range to end (use <1 = last element)
+            to = AST.intLiteral(1, expr.line);
+            toReverse = true;
+          } else {
+            to = this.parseExpression();
+          }
           this.expect(T.RBRACKET);
           expr = AST.rangeExprWithFlags(expr, index, fromReverse, to, toReverse, expr.line);
         } else {
