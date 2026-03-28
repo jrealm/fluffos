@@ -171,9 +171,11 @@ describe('parser — expressions', () => {
 
   it('parses range expression', () => {
     const e = parseExpr('arr[1..3]');
-    assert.equal(e.type, 'RangeExpression');
+    assert.equal(e.type, 'RangeExpressionEx');
     assert.equal(e.from.value, 1);
     assert.equal(e.to.value, 3);
+    assert.equal(e.fromReverse, false);
+    assert.equal(e.toReverse, false);
   });
 });
 

@@ -14,6 +14,7 @@ export const T = {
   PRIVATE: 'PRIVATE', PROTECTED: 'PROTECTED', PUBLIC: 'PUBLIC',
   STATIC: 'STATIC', NOMASK: 'NOMASK', NOSAVE: 'NOSAVE',
   VARARGS: 'VARARGS',
+  CATCH: 'CATCH', THROW: 'THROW',
 
   // Type keywords
   TYPE_INT: 'TYPE_INT', TYPE_STRING: 'TYPE_STRING', TYPE_FLOAT: 'TYPE_FLOAT',
@@ -59,6 +60,7 @@ const KEYWORDS = {
   'private': T.PRIVATE, 'protected': T.PROTECTED, 'public': T.PUBLIC,
   'static': T.STATIC, 'nomask': T.NOMASK, 'nosave': T.NOSAVE,
   'varargs': T.VARARGS,
+  'catch': T.CATCH, 'throw': T.THROW,
   'int': T.TYPE_INT, 'string': T.TYPE_STRING, 'float': T.TYPE_FLOAT,
   'object': T.TYPE_OBJECT, 'mapping': T.TYPE_MAPPING,
   'mixed': T.TYPE_MIXED, 'void': T.TYPE_VOID, 'buffer': T.TYPE_BUFFER,

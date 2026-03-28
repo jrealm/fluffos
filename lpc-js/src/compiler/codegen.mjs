@@ -181,6 +181,10 @@ class CodeGen {
       case 'SwitchStatement': this.genSwitch(node); break;
       case 'BreakStatement': this.genBreak(); break;
       case 'ContinueStatement': this.genContinue(); break;
+      case 'ThrowStatement':
+        this.genExpr(node.expression);
+        this.emitter.emitOp(OP.THROW);
+        break;
       default:
         throw new Error(`Unknown statement type: ${node.type}`);
     }
@@ -522,6 +526,75 @@ class CodeGen {
         this.genExpr(node.from);
         this.genExpr(node.to);
         this.emitter.emitOp(OP.RANGE);
+        this.emitter.emit(0);
+        break;
+
+      case 'NegativeIndex':
+        this.genExpr(node.object);
+        this.genExpr(node.index);
+        this.emitter.emitOp(OP.RINDEX);
+        break;
+
+      case 'RangeExpressionEx':
+        this.genExpr(node.object);
+        this.genExpr(node.from);
+        this.genExpr(node.to);
+        this.emitter.emitOp(OP.RANGE);
+        this.emitter.emit((node.fromReverse ? 1 : 0) | (node.toReverse ? 2 : 0));
+        break;
+
+      case 'CatchExpression': {
+        this.emitter.emitOp(OP.CATCH);
+        const endHole = this.emitter.currentOffset();
+        this.emitter.emitShort(0);
+        this.genExpr(node.expression);
+        this.emitter.emitOp(OP.POP);
+        this.emitter.emitOp(OP.PUSH_0);
+        this.emitter.emitOp(OP.END_CATCH);
+        this.emitter.patchShort(endHole, this.emitter.currentOffset());
+        break;
+      }
+
+      case 'LambdaExpression': {
+        if (node.kind === 'named') {
+          const nameIdx = this.emitter.addString(node.name);
+          for (const arg of node.partialArgs) {
+            this.genExpr(arg);
+          }
+          this.emitter.emitOp(OP.MAKE_FUNCTION);
+          this.emitter.emitShort(nameIdx);
+          this.emitter.emit(node.partialArgs.length);
+        } else {
+          // Inline closure
+          const closureName = `__closure_${this.emitter.functions.length}`;
+          let maxParam = 0;
+          this._scanLambdaParams(node.body, (n) => { if (n > maxParam) maxParam = n; });
+          const savedParams = this.params;
+          const savedLocals = this.locals;
+          this.params = new Map();
+          this.locals = new Map();
+          for (let i = 1; i <= maxParam; i++) {
+            this.params.set('$' + i, i - 1);
+          }
+          const offset = this.emitter.currentOffset();
+          this.genExpr(node.body);
+          this.emitter.emitOp(OP.RETURN);
+          this.emitter.functions.push({
+            name: closureName, numArgs: maxParam, numLocals: 0,
+            offset, flags: 0, type: 0,
+          });
+          this.params = savedParams;
+          this.locals = savedLocals;
+          const fnIdx = this.emitter.functions.length - 1;
+          this.emitter.emitOp(OP.MAKE_CLOSURE);
+          this.emitter.emitShort(fnIdx);
+        }
+        break;
+      }
+
+      case 'ThrowStatement':
+        this.genExpr(node.expression);
+        this.emitter.emitOp(OP.THROW);
         break;
 
       case 'ArrayLiteral':
@@ -624,6 +697,26 @@ class CodeGen {
     new DataView(buf).setFloat64(0, value);
     const bytes = new Uint8Array(buf);
     for (const b of bytes) this.emitter.emit(b);
+  }
+
+  _scanLambdaParams(node, cb) {
+    if (!node) return;
+    if (node.type === 'Identifier' && node.name.startsWith('$')) {
+      const n = parseInt(node.name.slice(1), 10);
+      if (!isNaN(n)) cb(n);
+    }
+    for (const key of Object.keys(node)) {
+      const val = node[key];
+      if (val && typeof val === 'object' && val.type) {
+        this._scanLambdaParams(val, cb);
+      } else if (Array.isArray(val)) {
+        for (const item of val) {
+          if (item && typeof item === 'object' && item.type) {
+            this._scanLambdaParams(item, cb);
+          }
+        }
+      }
+    }
   }
 }
 

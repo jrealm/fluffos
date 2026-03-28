@@ -198,6 +198,14 @@ class Parser {
     if (tok.type === T.RETURN) return this.parseReturn();
     if (tok.type === T.BREAK) { this.advance(); this.expect(T.SEMICOLON); return AST.breakStatement(tok.line); }
     if (tok.type === T.CONTINUE) { this.advance(); this.expect(T.SEMICOLON); return AST.continueStatement(tok.line); }
+    if (tok.type === T.THROW) {
+      this.advance();
+      this.expect(T.LPAREN);
+      const expr = this.parseExpression();
+      this.expect(T.RPAREN);
+      this.expect(T.SEMICOLON);
+      return AST.throwStatement(expr, tok.line);
+    }
 
     if (this.isType()) {
       return this.parseLocalVarDecl();
@@ -482,14 +490,22 @@ class Parser {
     while (true) {
       if (this.at(T.LBRACKET)) {
         this.advance();
+        let fromReverse = false;
+        let toReverse = false;
+        if (this.match(T.LT)) fromReverse = true;
         const index = this.parseExpression();
         if (this.match(T.DOT_DOT)) {
+          if (this.match(T.LT)) toReverse = true;
           const to = this.parseExpression();
           this.expect(T.RBRACKET);
-          expr = AST.rangeExpr(expr, index, to, expr.line);
+          expr = AST.rangeExprWithFlags(expr, index, fromReverse, to, toReverse, expr.line);
         } else {
           this.expect(T.RBRACKET);
-          expr = AST.indexExpr(expr, index, expr.line);
+          if (fromReverse) {
+            expr = AST.negativeIndex(expr, index, expr.line);
+          } else {
+            expr = AST.indexExpr(expr, index, expr.line);
+          }
         }
       } else if (this.at(T.ARROW)) {
         this.advance();
@@ -568,6 +584,31 @@ class Parser {
       return expr;
     }
 
+    // catch(expr)
+    if (tok.type === T.CATCH) {
+      this.advance();
+      this.expect(T.LPAREN);
+      const expr = this.parseExpression();
+      this.expect(T.RPAREN);
+      return AST.catchExpr(expr, tok.line);
+    }
+
+    // throw(expr) as expression (inside catch)
+    if (tok.type === T.THROW) {
+      this.advance();
+      this.expect(T.LPAREN);
+      const expr = this.parseExpression();
+      this.expect(T.RPAREN);
+      // Reuse ThrowStatement node but treat as expression
+      return AST.throwStatement(expr, tok.line);
+    }
+
+    // Lambda: (: ... :)
+    if (tok.type === T.FP_OPEN) {
+      this.advance();
+      return this.parseLambda(tok.line);
+    }
+
     if (tok.type === T.IDENT) {
       this.advance();
       if (this.at(T.LPAREN)) {
@@ -580,6 +621,24 @@ class Parser {
     }
 
     throw new Error(`Unexpected token ${tok.type} ('${tok.value}') at ${tok.file}:${tok.line}`);
+  }
+
+  parseLambda(line) {
+    // Named: (: func_name :) or (: func_name, arg1, arg2 :)
+    if (this.at(T.IDENT) && (this.tokens[this.pos + 1]?.type === T.FP_CLOSE ||
+                              this.tokens[this.pos + 1]?.type === T.COMMA)) {
+      const name = this.advance().value;
+      const partialArgs = [];
+      while (this.match(T.COMMA)) {
+        partialArgs.push(this.parseExpression());
+      }
+      this.expect(T.FP_CLOSE);
+      return AST.lambdaExpr('named', name, partialArgs, null, line);
+    }
+    // Inline closure: (: expr :)
+    const body = this.parseExpression();
+    this.expect(T.FP_CLOSE);
+    return AST.lambdaExpr('inline', null, [], body, line);
   }
 
   parseArgList() {

@@ -137,3 +137,23 @@ export function classMemberAccess(object, member, line) {
 export function scopeCallExpr(name, args, line) {
   return { type: 'ScopeCallExpression', name, args, line };
 }
+
+export function negativeIndex(object, index, line) {
+  return { type: 'NegativeIndex', object, index, line };
+}
+
+export function rangeExprWithFlags(object, from, fromReverse, to, toReverse, line) {
+  return { type: 'RangeExpressionEx', object, from, fromReverse, to, toReverse, line };
+}
+
+export function catchExpr(expression, line) {
+  return { type: 'CatchExpression', expression, line };
+}
+
+export function throwStatement(expression, line) {
+  return { type: 'ThrowStatement', expression, line };
+}
+
+export function lambdaExpr(kind, name, partialArgs, body, line) {
+  return { type: 'LambdaExpression', kind, name, partialArgs, body, line };
+}

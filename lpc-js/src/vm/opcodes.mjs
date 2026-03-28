@@ -77,10 +77,19 @@ export const OP = {
   FOREACH_NEXT: 0x91,
   FOREACH_END:  0x92,
 
+  // Reverse index
+  RINDEX:       0x75,
+
+  // Function pointers
+  MAKE_FUNCTION:     0x76,
+  CALL_FUNCTION_PTR: 0x77,
+  MAKE_CLOSURE:      0x78,
+
   // Special
   CATCH:        0xA0,
   END_CATCH:    0xA1,
   SWITCH:       0xA2,
+  THROW:        0xA3,
   POP:          0xB0,
   DUP:          0xB1,
 };

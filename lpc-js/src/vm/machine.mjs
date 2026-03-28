@@ -1,9 +1,16 @@
 import { OP } from './opcodes.mjs';
 import {
-  T_INT, T_STRING, T_FLOAT, T_ARRAY, T_MAPPING,
-  mkInt, mkString, mkFloat, mkArray, mkMapping,
+  T_INT, T_STRING, T_FLOAT, T_ARRAY, T_MAPPING, T_FUNCTION,
+  mkInt, mkString, mkFloat, mkArray, mkMapping, mkFunction,
   SVALUE_ZERO, SVALUE_ONE, isTruthy
 } from './svalue.mjs';
+
+export class RuntimeError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'RuntimeError';
+  }
+}
 
 export class Machine {
   constructor() {
@@ -17,6 +24,8 @@ export class Machine {
     this.evalCost = 0;
     this.efunHandler = null;
     this.callOtherHandler = null;
+    this._catchStack = [];
+    this._foreachStack = [];
   }
 
   execute(program, functionName, args = []) {
@@ -54,15 +63,16 @@ export class Machine {
 
   run() {
     const bc = this.currentProgram.bytecode;
+    const catchBase = this._catchStack.length;
 
     while (this.pc < bc.length) {
       if (++this.evalCost > this.maxEvalCost) {
-        throw new Error('Too long evaluation. Execution aborted.');
+        throw new RuntimeError('Too long evaluation. Execution aborted.');
       }
 
       const op = bc[this.pc++];
 
-      switch (op) {
+      try { switch (op) {
         case OP.PUSH_0:
           this.stack.push(SVALUE_ZERO);
           break;
@@ -155,7 +165,7 @@ export class Machine {
         case OP.DIV: {
           const b = this.stack.pop();
           const a = this.stack.pop();
-          if (b.value === 0) throw new Error('Division by zero');
+          if (b.value === 0) throw new RuntimeError('Division by zero');
           if (a.type === T_FLOAT || b.type === T_FLOAT) {
             this.stack.push(mkFloat(a.value / b.value));
           } else {
@@ -167,7 +177,7 @@ export class Machine {
         case OP.MOD: {
           const b = this.stack.pop();
           const a = this.stack.pop();
-          if (b.value === 0) throw new Error('Modulo by zero');
+          if (b.value === 0) throw new RuntimeError('Modulo by zero');
           this.stack.push(mkInt(a.value % b.value));
           break;
         }
@@ -371,7 +381,7 @@ export class Machine {
           if (obj.type === T_ARRAY) {
             const idx = index.value;
             if (idx < 0 || idx >= obj.value.length) {
-              throw new Error(`Array index out of bounds: ${idx}`);
+              throw new RuntimeError(`Array index out of bounds: ${idx}`);
             }
             this.stack.push(obj.value[idx]);
           } else if (obj.type === T_MAPPING) {
@@ -380,31 +390,142 @@ export class Machine {
           } else if (obj.type === T_STRING) {
             this.stack.push(mkInt(obj.value.charCodeAt(index.value)));
           } else {
-            throw new Error(`Cannot index type ${obj.type}`);
+            throw new RuntimeError(`Cannot index type ${obj.type}`);
+          }
+          break;
+        }
+
+        case OP.RINDEX: {
+          const index = this.stack.pop();
+          const obj = this.stack.pop();
+          if (obj.type === T_ARRAY) {
+            this.stack.push(obj.value[obj.value.length - index.value]);
+          } else if (obj.type === T_STRING) {
+            this.stack.push(mkInt(obj.value.charCodeAt(obj.value.length - index.value)));
+          } else {
+            throw new RuntimeError(`Cannot reverse-index type ${obj.type}`);
           }
           break;
         }
 
         case OP.RANGE: {
+          const flags = bc[this.pc++];
           const to = this.stack.pop();
           const from = this.stack.pop();
           const obj = this.stack.pop();
+          const len = obj.type === T_ARRAY ? obj.value.length : obj.value.length;
+          const fromIdx = (flags & 1) ? len - from.value : from.value;
+          const toIdx = (flags & 2) ? len - to.value : to.value;
           if (obj.type === T_ARRAY) {
-            this.stack.push(mkArray(obj.value.slice(from.value, to.value + 1)));
+            this.stack.push(mkArray(obj.value.slice(fromIdx, toIdx + 1)));
           } else if (obj.type === T_STRING) {
-            this.stack.push(mkString(obj.value.slice(from.value, to.value + 1)));
+            this.stack.push(mkString(obj.value.slice(fromIdx, toIdx + 1)));
           } else {
-            throw new Error(`Cannot range type ${obj.type}`);
+            throw new RuntimeError(`Cannot range type ${obj.type}`);
           }
           break;
         }
 
+        case OP.CATCH: {
+          const endOffset = this.readShort();
+          this._catchStack.push({
+            endOffset,
+            savedSp: this.stack.length,
+            savedCallSp: this.callStack.length,
+          });
+          break;
+        }
+
+        case OP.END_CATCH: {
+          this._catchStack.pop();
+          break;
+        }
+
+        case OP.THROW: {
+          const value = this.stack.pop();
+          const msg = value.type === T_STRING ? value.value : String(value.value);
+          throw new RuntimeError(msg);
+        }
+
+        case OP.MAKE_FUNCTION: {
+          const nameIdx = this.readShort();
+          const partialCount = bc[this.pc++];
+          const partialArgs = [];
+          for (let i = 0; i < partialCount; i++) {
+            partialArgs.unshift(this.stack.pop());
+          }
+          const name = this.currentProgram.strings[nameIdx];
+          this.stack.push(mkFunction({ kind: 'named', name, partialArgs, program: this.currentProgram }));
+          break;
+        }
+
+        case OP.MAKE_CLOSURE: {
+          const fnIdx = this.readShort();
+          this.stack.push(mkFunction({ kind: 'closure', fnIdx, program: this.currentProgram }));
+          break;
+        }
+
+        case OP.CALL_FUNCTION_PTR: {
+          const argCount = bc[this.pc++];
+          const args = [];
+          for (let i = 0; i < argCount; i++) {
+            args.unshift(this.stack.pop());
+          }
+          const fp = this.stack.pop();
+          if (fp.type !== T_FUNCTION) throw new RuntimeError('Not a function pointer');
+          const result = this._callFunctionPtr(fp.value, args);
+          this.stack.push(result);
+          break;
+        }
+
         default:
-          throw new Error(`Unknown opcode: 0x${op.toString(16)} at pc=${this.pc - 1}`);
+          throw new RuntimeError(`Unknown opcode: 0x${op.toString(16)} at pc=${this.pc - 1}`);
+      } } catch (e) {
+        if (this._catchStack.length > catchBase) {
+          const handler = this._catchStack.pop();
+          this.stack.length = handler.savedSp;
+          this.callStack.length = handler.savedCallSp;
+          this.pc = handler.endOffset;
+          const msg = e instanceof RuntimeError ? e.message : e.message;
+          this.stack.push(mkString(msg));
+        } else {
+          throw e;
+        }
       }
     }
 
     return SVALUE_ZERO;
+  }
+
+  _callFunctionPtr(fp, args) {
+    if (fp.kind === 'named') {
+      const allArgs = [...fp.partialArgs, ...args];
+      const fn = fp.program.findFunction(fp.name);
+      if (fn) {
+        const savedProgram = this.currentProgram;
+        this.currentProgram = fp.program;
+        const result = this.callFunction(fn, allArgs);
+        this.currentProgram = savedProgram;
+        return result;
+      }
+      const inherited = fp.program.findInheritedFunction(fp.name);
+      if (inherited) {
+        const savedProgram = this.currentProgram;
+        this.currentProgram = inherited.program;
+        const result = this.callFunction(inherited.fn, allArgs);
+        this.currentProgram = savedProgram;
+        return result;
+      }
+      throw new RuntimeError(`Function not found: ${fp.name}`);
+    } else if (fp.kind === 'closure') {
+      const fn = fp.program.functions[fp.fnIdx];
+      const savedProgram = this.currentProgram;
+      this.currentProgram = fp.program;
+      const result = this.callFunction(fn, args);
+      this.currentProgram = savedProgram;
+      return result;
+    }
+    throw new RuntimeError('Invalid function pointer');
   }
 
   readShort() {

@@ -28,6 +28,10 @@ export function mkMapping(value) {
   return { type: T_MAPPING, value };
 }
 
+export function mkFunction(value) {
+  return { type: T_FUNCTION, value };
+}
+
 export const SVALUE_ZERO = Object.freeze(mkInt(0));
 export const SVALUE_ONE = Object.freeze(mkInt(1));
 
