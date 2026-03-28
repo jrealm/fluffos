@@ -1,6 +1,9 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { LpcSocketManager, SOCKET_MODE, SOCKET_STATE, EESUCCESS, EEBADF, EEMODENOTSUPP, EENOTCONN, EENOADDR } from '../../src/net/lpc-socket.mjs';
+import { EfunRegistry } from '../../src/runtime/efuns.mjs';
+import { registerSocketEfuns } from '../../src/runtime/efuns/sockets.mjs';
+import { mkInt, mkString, SVALUE_ZERO } from '../../src/vm/svalue.mjs';
 
 describe('LpcSocketManager', () => {
   let mgr;
@@ -146,5 +149,43 @@ describe('UDP DATAGRAM', () => {
     const fd = mgr.create(SOCKET_MODE.DATAGRAM, null, () => {}, null);
     mgr.bind(fd, 0);
     assert.equal(mgr.listen(fd, () => {}), EEMODENOTSUPP);
+  });
+});
+
+describe('socket efuns', () => {
+  let reg, mgr, driver;
+  beforeEach(() => {
+    mgr = new LpcSocketManager();
+    driver = {
+      currentObject: { objectId: 'test' },
+      sockets: mgr,
+      apply: () => SVALUE_ZERO,
+    };
+    reg = new EfunRegistry();
+    reg.loadDefaults();
+    registerSocketEfuns(reg, driver);
+  });
+  afterEach(() => { mgr.closeAll(); });
+
+  it('socket_create returns fd >= 0', () => {
+    const result = reg.call('socket_create', [mkInt(1), mkString('read_cb'), mkString('close_cb')]);
+    assert.ok(result.value >= 0);
+  });
+
+  it('socket_bind succeeds', () => {
+    const fd = reg.call('socket_create', [mkInt(1), mkString('r'), mkString('c')]);
+    const result = reg.call('socket_bind', [fd, mkInt(0)]);
+    assert.equal(result.value, EESUCCESS);
+  });
+
+  it('socket_close succeeds', () => {
+    const fd = reg.call('socket_create', [mkInt(1), mkString('r'), mkString('c')]);
+    const result = reg.call('socket_close', [fd]);
+    assert.equal(result.value, EESUCCESS);
+  });
+
+  it('socket_error returns string', () => {
+    const result = reg.call('socket_error', [mkInt(EEBADF)]);
+    assert.ok(result.value.length > 0);
   });
 });

@@ -11,6 +11,8 @@ import { registerFileEfuns } from './efuns/files.mjs';
 import { registerShadowEfuns } from './efuns/shadow.mjs';
 import { registerDatabaseEfuns } from './efuns/database.mjs';
 import { registerSnoopEfuns } from './efuns/snoop.mjs';
+import { registerSocketEfuns } from './efuns/sockets.mjs';
+import { LpcSocketManager } from '../net/lpc-socket.mjs';
 import { apply, setMachine, setApplyHook } from './apply.mjs';
 import { mkInt, mkString, mkArray, SVALUE_ZERO, T_OBJECT } from '../vm/svalue.mjs';
 
@@ -23,6 +25,7 @@ export class Driver {
     this.heartBeatList = new Set();
     this.currentObject = null;
     this.bootTime = Date.now();
+    this.sockets = new LpcSocketManager();
 
     this.efuns.loadDefaults();
     this._registerDriverEfuns();
@@ -73,6 +76,7 @@ export class Driver {
     registerShadowEfuns(this.efuns, this);
     registerDatabaseEfuns(this.efuns);
     registerSnoopEfuns(this.efuns, this);
+    registerSocketEfuns(this.efuns, this);
 
     const mudlibDir = config['mudlib directory'] ?? '/';
     registerFileEfuns(this.efuns, mudlibDir);
