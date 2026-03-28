@@ -8,6 +8,10 @@ import { registerFileEfuns } from './efuns/files.mjs';
 import { registerRegexEfuns } from './efuns/regex.mjs';
 import { registerSprintfEfuns } from './efuns/sprintf.mjs';
 import { registerBitEfuns } from './efuns/bits.mjs';
+import { registerContribEfuns } from './efuns/contrib.mjs';
+import { registerMathEfuns } from './efuns/math.mjs';
+import { registerEncodingEfuns } from './efuns/encoding.mjs';
+import { registerCompressEfuns } from './efuns/compress.mjs';
 
 export class EfunRegistry {
   constructor() {
@@ -38,6 +42,10 @@ export class EfunRegistry {
     registerRegexEfuns(this);
     registerSprintfEfuns(this);
     registerBitEfuns(this);
+    registerContribEfuns(this, null);
+    registerMathEfuns(this);
+    registerEncodingEfuns(this, null);
+    registerCompressEfuns(this);
     if (options.mudlibDir) {
       registerFileEfuns(this, options.mudlibDir);
     }

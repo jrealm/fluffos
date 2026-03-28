@@ -12,9 +12,17 @@ import { registerShadowEfuns } from './efuns/shadow.mjs';
 import { registerDatabaseEfuns } from './efuns/database.mjs';
 import { registerSnoopEfuns } from './efuns/snoop.mjs';
 import { registerSocketEfuns } from './efuns/sockets.mjs';
+import { registerContribEfuns } from './efuns/contrib.mjs';
+import { registerEncodingEfuns } from './efuns/encoding.mjs';
+import { registerAsyncEfuns } from './efuns/async.mjs';
+import { registerCompressEfuns } from './efuns/compress.mjs';
+import { spawn } from 'node:child_process';
 import { LpcSocketManager } from '../net/lpc-socket.mjs';
 import { apply, setMachine, setApplyHook } from './apply.mjs';
-import { mkInt, mkString, mkArray, SVALUE_ZERO, T_OBJECT } from '../vm/svalue.mjs';
+import { mkInt, mkString, mkArray, SVALUE_ZERO, T_OBJECT, T_MAPPING, T_STRING, T_ARRAY, T_FUNCTION } from '../vm/svalue.mjs';
+import { O_HEART_BEAT } from './object.mjs';
+import { setSimulEfunNames } from '../compiler/codegen.mjs';
+import { RuntimeError } from '../vm/machine.mjs';
 
 export class Driver {
   constructor(config, options = {}) {
@@ -22,15 +30,27 @@ export class Driver {
     this.vm = new Machine();
     this.efuns = new EfunRegistry();
     this.callOuts = new CallOutManager();
+    this.callOuts.maxCallOuts = parseInt(config['max call outs'] ?? '1000', 10);
     this.heartBeatList = new Set();
     this.currentObject = null;
     this.bootTime = Date.now();
     this.sockets = new LpcSocketManager();
+    this.master = null;
+    this.simulEfunObject = null;
+    this.simulEfunNames = new Set();
+    this.resetInterval = parseInt(config['time to reset'] ?? '1800', 10) * 1000;
+    this.cleanUpInterval = parseInt(config['time to clean up'] ?? '900', 10) * 1000;
 
     this.efuns.loadDefaults();
     this._registerDriverEfuns();
 
-    this.vm.efunHandler = (name, args) => this.efuns.call(name, args);
+    this.vm.efunHandler = (name, args) => {
+      if (this.efuns.has(name)) {
+        return this.efuns.call(name, args);
+      }
+      return this.callSimulEfun(name, args);
+    };
+    this.vm.simulEfunHandler = (name, args) => this.callSimulEfun(name, args);
     this.vm.maxEvalCost = parseInt(config['max eval cost'] ?? '1000000', 10);
     setMachine(this.vm);
 
@@ -77,9 +97,13 @@ export class Driver {
     registerDatabaseEfuns(this.efuns);
     registerSnoopEfuns(this.efuns, this);
     registerSocketEfuns(this.efuns, this);
+    registerContribEfuns(this.efuns, this);
+    registerEncodingEfuns(this.efuns, this);
+    registerAsyncEfuns(this.efuns, this);
+    registerCompressEfuns(this.efuns);
 
     const mudlibDir = config['mudlib directory'] ?? '/';
-    registerFileEfuns(this.efuns, mudlibDir);
+    registerFileEfuns(this.efuns, mudlibDir, this);
   }
 
   _registerDriverEfuns() {
@@ -150,8 +174,10 @@ export class Driver {
       if (driver.currentObject) {
         if (args[0].value) {
           driver.heartBeatList.add(driver.currentObject);
+          driver.currentObject.flags |= O_HEART_BEAT;
         } else {
           driver.heartBeatList.delete(driver.currentObject);
+          driver.currentObject.flags &= ~O_HEART_BEAT;
         }
       }
       return SVALUE_ZERO;
@@ -380,11 +406,132 @@ export class Driver {
       }
       return mkArray(result);
     });
+
+    this.efuns.register('master', () => {
+      if (driver.master) return { type: T_OBJECT, value: driver.master };
+      return SVALUE_ZERO;
+    });
+
+    this.efuns.register('remove_action', (args) => {
+      const verb = args[0].value;
+      const obj = args[1]?.type === T_OBJECT ? args[1].value : driver.currentObject;
+      if (obj) {
+        driver.commands.removeAction(obj, verb);
+        return mkInt(1);
+      }
+      return SVALUE_ZERO;
+    });
+
+    this.efuns.register('deep_inherit_list', (args) => {
+      const obj = args[0]?.type === T_OBJECT ? args[0].value : driver.currentObject;
+      if (!obj?.program) return mkArray([]);
+      const result = [];
+      function collect(program) {
+        for (const inh of program.inherits) {
+          result.push(mkString(inh.program.filename));
+          collect(inh.program);
+        }
+      }
+      collect(obj.program);
+      return mkArray(result);
+    });
+
+    this.efuns.register('shallow_inherit_list', (args) => {
+      const obj = args[0]?.type === T_OBJECT ? args[0].value : driver.currentObject;
+      if (!obj?.program) return mkArray([]);
+      return mkArray(obj.program.inherits.map(inh => mkString(inh.program.filename)));
+    });
+
+    // Eval cost control
+    this.efuns.register('set_eval_limit', (args) => {
+      const limit = args[0].value;
+      driver.vm.maxEvalCost = limit === 0 ? Infinity : limit;
+      return SVALUE_ZERO;
+    });
+
+    this.efuns.register('reset_eval_cost', () => {
+      driver.vm.evalCost = 0;
+      return SVALUE_ZERO;
+    });
+
+    this.efuns.register('eval_cost', () => {
+      return mkInt(driver.vm.evalCost);
+    });
+
+    this.efuns.register('max_eval_cost', () => {
+      return mkInt(driver.vm.maxEvalCost === Infinity ? 0 : driver.vm.maxEvalCost);
+    });
+
+    this.efuns.register('defer', (args) => {
+      const func = args[0];
+      if (func.type === T_FUNCTION && func.value) {
+        // Schedule for next tick
+        const obj = driver.currentObject;
+        setTimeout(() => {
+          if (obj && !obj.isDestructed()) {
+            const vm = driver.vm;
+            try {
+              vm._callFunctionPtr(func.value, []);
+            } catch (e) {
+              const tb = vm.collectTraceback(e.message ?? String(e));
+              driver.callErrorHandler(tb, 0);
+            }
+          }
+        }, 0);
+      }
+      return SVALUE_ZERO;
+    });
+
+    this.efuns.register('all_previous_objects', () => {
+      const frames = driver.vm.callStack;
+      const result = [];
+      const seen = new Set();
+      for (let i = frames.length - 1; i >= 0; i--) {
+        const obj = frames[i].object;
+        if (obj && !seen.has(obj)) {
+          seen.add(obj);
+          result.push({ type: T_OBJECT, value: obj });
+        }
+      }
+      return mkArray(result);
+    });
+
+    this.efuns.register('external_start', (args) => {
+      const cmd = args[0].value;
+      const cmdArgs = args[1]?.type === T_ARRAY
+        ? args[1].value.map(sv => String(sv.value))
+        : [];
+      const stdoutCb = args[2];
+      const stderrCb = args[3];
+      const exitCb = args[4];
+
+      const child = spawn(cmd, cmdArgs);
+
+      if (stdoutCb?.type === T_FUNCTION) {
+        child.stdout?.on('data', (data) => {
+          try { driver.vm._callFunctionPtr(stdoutCb.value, [mkString(data.toString())]); } catch {}
+        });
+      }
+      if (stderrCb?.type === T_FUNCTION) {
+        child.stderr?.on('data', (data) => {
+          try { driver.vm._callFunctionPtr(stderrCb.value, [mkString(data.toString())]); } catch {}
+        });
+      }
+      if (exitCb?.type === T_FUNCTION) {
+        child.on('close', (code) => {
+          try { driver.vm._callFunctionPtr(exitCb.value, [mkInt(code ?? 0)]); } catch {}
+        });
+      }
+
+      return mkInt(child.pid ?? 0);
+    });
   }
 
   mainLoop() {
     this.callOuts.tick();
     this.heartBeatTick();
+    this.resetTick();
+    this.cleanUpTick();
     this._processReplaceProgramQueue();
   }
 
@@ -396,11 +543,208 @@ export class Driver {
     }
   }
 
+  boot() {
+    // 1. Load master
+    const masterFile = this.config['master file'];
+    this.master = this.objects.load(masterFile);
+
+    // 2. Load simul_efun (optional)
+    try {
+      this.loadSimulEfun();
+    } catch (e) {
+      console.error(`Warning: simul_efun load failed: ${e.message}`);
+    }
+
+    // 3. Call epilog → get preload list
+    const preloadList = apply('epilog', this.master, []);
+    if (preloadList?.type === T_ARRAY) {
+      const paths = preloadList.value;
+      console.log(`Preloading ${paths.length} objects...`);
+      for (let i = 0; i < paths.length; i++) {
+        const entry = paths[i];
+        if (!entry || entry.type !== T_STRING) continue;
+        const objPath = entry.value;
+        console.log(`[${i + 1}/${paths.length}] ${objPath}`);
+        try {
+          apply('preload', this.master, [mkString(objPath)]);
+        } catch (e) {
+          console.error(`  Failed: ${e.message}`);
+          const tb = this.vm.collectTraceback(e.message ?? String(e));
+          this.callErrorHandler(tb, 0);
+        }
+      }
+      console.log('Preload complete.');
+    }
+  }
+
+  loadSimulEfun() {
+    const pathResult = apply('get_simul_efun', this.master, []);
+    if (!pathResult || pathResult.type !== T_STRING) return;
+
+    this.simulEfunObject = this.objects.load(pathResult.value);
+    this.simulEfunNames.clear();
+    for (const func of this.simulEfunObject.program.functions) {
+      if (func.name !== 'create') {
+        this.simulEfunNames.add(func.name);
+      }
+    }
+    setSimulEfunNames(this.simulEfunNames);
+  }
+
+  callSimulEfun(name, args) {
+    if (!this.simulEfunObject || this.simulEfunObject.isDestructed()) {
+      if (this.master && !this.master.isDestructed()) {
+        this.loadSimulEfun();
+      }
+    }
+    if (!this.simulEfunObject) {
+      throw new RuntimeError(`Unknown function: ${name}`);
+    }
+    if (this.simulEfunNames.has(name)) {
+      return apply(name, this.simulEfunObject, args);
+    }
+    throw new RuntimeError(`Unknown function: ${name}`);
+  }
+
+  checkFileAccess(type, filePath, func) {
+    if (!this.master || this.master.isDestructed()) return filePath;
+
+    const applyName = type === 'read' ? 'valid_read' : 'valid_write';
+    const ob = this.currentObject;
+    const result = apply(applyName, this.master, [
+      mkString(filePath),
+      ob ? { type: T_OBJECT, value: ob } : SVALUE_ZERO,
+      mkString(func),
+    ]);
+
+    if (result?.type === T_STRING) return result.value;
+    if (result?.value) return filePath;
+    return null;
+  }
+
+  checkSocketAccess(func, args = []) {
+    if (!this.master || this.master.isDestructed()) return true;
+
+    const ob = this.currentObject;
+    const applyArgs = [
+      ob ? { type: T_OBJECT, value: ob } : SVALUE_ZERO,
+      mkString(func),
+      ...args,
+    ];
+    const result = apply('valid_socket', this.master, applyArgs);
+    return !!result?.value;
+  }
+
+  callErrorHandler(tracebackOrError, caught) {
+    if (!this.master || this.master.isDestructed()) return;
+
+    let tb;
+    if (tracebackOrError && tracebackOrError.frames) {
+      tb = tracebackOrError;
+    } else if (tracebackOrError instanceof Error) {
+      tb = this.vm.collectTraceback(tracebackOrError.message);
+    } else {
+      tb = { message: String(tracebackOrError), frames: [] };
+    }
+
+    const traceArray = mkArray(
+      tb.frames.map(f => {
+        const m = new Map();
+        m.set('function', mkString(f.function ?? '<unknown>'));
+        m.set('program', mkString(f.file ?? '<unknown>'));
+        m.set('object', mkString(f.object ?? '<none>'));
+        m.set('line', mkInt(f.line ?? 0));
+        return { type: T_MAPPING, value: m };
+      })
+    );
+
+    const errorMap = new Map();
+    errorMap.set('error', mkString(tb.message));
+    errorMap.set('program', mkString(tb.frames[0]?.file ?? '<unknown>'));
+    errorMap.set('object', mkString(tb.frames[0]?.object ?? '<none>'));
+    errorMap.set('line', mkInt(tb.frames[0]?.line ?? 0));
+    errorMap.set('trace', traceArray);
+
+    try {
+      apply('error_handler', this.master, [
+        { type: T_MAPPING, value: errorMap },
+        mkInt(caught),
+      ]);
+    } catch (e) {
+      console.error(`error_handler threw: ${e.message}`);
+    }
+  }
+
   heartBeatTick() {
+    const maxErrors = parseInt(this.config['max heart beat errors'] ?? '10', 10);
+    const toRemove = [];
     for (const obj of this.heartBeatList) {
-      if (!obj.isDestructed()) {
-        this.currentObject = obj;
+      if (obj.isDestructed()) {
+        toRemove.push(obj);
+        continue;
+      }
+      this.currentObject = obj;
+      try {
         apply('heart_beat', obj, []);
+        obj.heartBeatErrors = 0;
+      } catch (e) {
+        const tb = this.vm.collectTraceback(e.message ?? String(e));
+        this.callErrorHandler(tb, 0);
+        obj.heartBeatErrors = (obj.heartBeatErrors ?? 0) + 1;
+        if (obj.heartBeatErrors >= maxErrors) {
+          obj.flags &= ~O_HEART_BEAT;
+          toRemove.push(obj);
+        }
+      }
+    }
+    for (const obj of toRemove) {
+      this.heartBeatList.delete(obj);
+    }
+    this.currentObject = null;
+  }
+
+  _jitteredResetInterval() {
+    const jitter = 1.0 + (Math.random() * 0.3 - 0.15);
+    return Math.round(this.resetInterval * jitter);
+  }
+
+  resetTick() {
+    const now = Date.now();
+    for (const obj of this.objects.objects.values()) {
+      if (obj.isDestructed()) continue;
+      if (obj.nextReset === 0 || obj.nextReset > now) continue;
+      // Only reset objects that were accessed since last reset was scheduled
+      if (obj.lastAccess < obj.nextReset - this.resetInterval) continue;
+
+      obj.nextReset = now + this._jitteredResetInterval();
+      this.currentObject = obj;
+      try {
+        apply('reset', obj, []);
+      } catch (e) {
+        const tb = this.vm.collectTraceback(e.message ?? String(e));
+        this.callErrorHandler(tb, 0);
+      }
+    }
+    this.currentObject = null;
+  }
+
+  cleanUpTick() {
+    const now = Date.now();
+    for (const obj of this.objects.objects.values()) {
+      if (obj.isDestructed()) continue;
+      if (obj.interactive) continue;
+      if (obj.flags & O_HEART_BEAT) continue;
+      if (now - obj.lastAccess < this.cleanUpInterval) continue;
+
+      this.currentObject = obj;
+      try {
+        const result = apply('clean_up', obj, []);
+        if (!result?.value) {
+          obj.lastAccess = now; // Declined — delay next check
+        }
+      } catch (e) {
+        const tb = this.vm.collectTraceback(e.message ?? String(e));
+        this.callErrorHandler(tb, 0);
       }
     }
     this.currentObject = null;

@@ -1,4 +1,4 @@
-import { mkInt, mkString, mkArray, mkMapping, SVALUE_ZERO } from '../../vm/svalue.mjs';
+import { mkInt, mkString, mkArray, mkMapping, SVALUE_ZERO, mappingKey } from '../../vm/svalue.mjs';
 
 export class DatabaseManager {
   constructor() {
@@ -59,7 +59,9 @@ export class DatabaseManager {
     return mkArray(rows.map(row => {
       const m = new Map();
       for (const [k, v] of Object.entries(row)) {
-        m.set(k, typeof v === 'number' ? mkInt(v) : mkString(String(v ?? '')));
+        const key = mkString(k);
+        const value = typeof v === 'number' ? mkInt(v) : mkString(String(v ?? ''));
+        m.set(mappingKey(key), { key, value });
       }
       return mkMapping(m);
     }));
@@ -83,6 +85,19 @@ export function registerDatabaseEfuns(reg) {
 
   reg.register('db_fetch', (args) => {
     return dbm.fetch(args[0].value);
+  });
+
+  reg.register('db_commit', (args) => {
+    return dbm.exec(args[0].value, 'COMMIT');
+  });
+
+  reg.register('db_rollback', (args) => {
+    return dbm.exec(args[0].value, 'ROLLBACK');
+  });
+
+  reg.register('db_status', () => {
+    const count = dbm.connections.size;
+    return mkString(`${count} open connection(s)`);
   });
 
   return dbm;

@@ -126,6 +126,22 @@ yarn test     # 執行所有測試
 - GMCP 協議（Telnet subnegotiation + WebSocket JSON frame）
 - MXP 協議（基本啟用，mudlib 自行嵌入標記）
 - LPC Socket API（TCP STREAM、UDP DATAGRAM、MUD mode）
+- `error_handler` master apply（完整 traceback 資訊）
+- `valid_read`/`valid_write`/`valid_bind`/`valid_socket` 安全檢查
+- Simul_efun 機制（支援 destruct 後自動重載）
+- `epilog`/`preload` 啟動流程（含進度輸出）
+- `reset()`/`clean_up()` 物件生命週期排程
+- Call_out 數量限制
+- Heart_beat 錯誤處理（連續錯誤自動停止）
+
+## 新增 Config 設定
+
+| Config 鍵 | 預設值 | 說明 |
+|-----------|--------|------|
+| `time to reset` | 1800 | 物件 reset 週期（秒） |
+| `time to clean up` | 900 | 物件 clean_up 週期（秒） |
+| `max call outs` | 1000 | call_out 全域上限 |
+| `max heart beat errors` | 10 | heart_beat 連續錯誤閾值 |
 
 ## 使用範例
 
@@ -165,3 +181,4 @@ setInterval(() => driver.mainLoop(), 100);
 ## 設計文件
 
 - [設計規格](../docs/superpowers/specs/2026-03-28-lpc-js-driver-design.md)
+- [Phase 7: 驅動器安全與穩定性](../docs/superpowers/specs/2026-03-28-lpc-js-phase7-driver-features.md)

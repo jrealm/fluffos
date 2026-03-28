@@ -16,6 +16,13 @@ export class CommandManager {
     this.actions.delete(object);
   }
 
+  removeAction(object, verb) {
+    const actions = this.actions.get(object);
+    if (!actions) return;
+    const idx = actions.findIndex(a => a.verb === verb);
+    if (idx >= 0) actions.splice(idx, 1);
+  }
+
   getActions(object) {
     return this.actions.get(object) ?? [];
   }

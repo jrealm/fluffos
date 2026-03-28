@@ -1,4 +1,5 @@
 import { mkInt, mkString, SVALUE_ZERO, T_OBJECT, T_STRING, T_ARRAY } from '../../vm/svalue.mjs';
+import { lpcSprintf } from './sprintf.mjs';
 
 export function registerInteractiveEfuns(reg, driver) {
   reg.register('write', (args) => {
@@ -218,6 +219,33 @@ export function registerInteractiveEfuns(reg, driver) {
       if (conn.protocol === 'telnet' && conn.mxpEnabled) {
         conn.sendSubnegotiation(91, '');
       }
+    }
+    return SVALUE_ZERO;
+  });
+
+  reg.register('remove_interactive', (args) => {
+    const obj = args[0].type === T_OBJECT ? args[0].value : null;
+    if (obj?.interactive) {
+      const conn = obj.interactive;
+      try { conn.close(); } catch {}
+      obj.interactive = null;
+      conn.object = null;
+    }
+    return SVALUE_ZERO;
+  });
+
+  reg.register('query_ip_port', (args) => {
+    const obj = args.length > 0 && args[0].type === T_OBJECT ? args[0].value : driver.currentObject;
+    if (obj?.interactive) {
+      return mkInt(obj.interactive.remotePort ?? 0);
+    }
+    return SVALUE_ZERO;
+  });
+
+  reg.register('printf', (args) => {
+    const text = lpcSprintf(args);
+    if (driver.currentObject?.interactive) {
+      driver.currentObject.interactive.send(text);
     }
     return SVALUE_ZERO;
   });

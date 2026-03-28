@@ -1,4 +1,4 @@
-import { mkInt, mkString, mkFloat, mkArray, mkMapping, T_INT, T_STRING, T_FLOAT, T_ARRAY, T_MAPPING, T_OBJECT, T_FUNCTION, T_BUFFER, SVALUE_ZERO } from '../../vm/svalue.mjs';
+import { mkInt, mkString, mkFloat, mkArray, mkMapping, mkFunction, T_INT, T_STRING, T_FLOAT, T_ARRAY, T_MAPPING, T_OBJECT, T_FUNCTION, T_BUFFER, SVALUE_ZERO } from '../../vm/svalue.mjs';
 import { getMachine } from '../apply.mjs';
 import { createHash } from 'node:crypto';
 import { hostname } from 'node:os';
@@ -56,10 +56,6 @@ export function registerMiscEfuns(reg) {
     if (fp.type !== T_FUNCTION) return fp;
     const vm = getMachine();
     return vm._callFunctionPtr(fp.value, args.slice(1));
-  });
-
-  reg.register('functionp', (args) => {
-    return mkInt(args[0].type === T_FUNCTION ? 1 : 0);
   });
 
   reg.register('sscanf', (args) => {
@@ -160,6 +156,51 @@ export function registerMiscEfuns(reg) {
   });
 
   reg.register('call_stack', () => {
-    return mkArray([]);
+    const vm = getMachine();
+    if (!vm) return mkArray([]);
+    const frames = vm.callStack.map(f => mkString(f.functionName ?? '<unknown>'));
+    if (vm._currentFunctionName) {
+      frames.push(mkString(vm._currentFunctionName));
+    }
+    return mkArray(frames.reverse());
+  });
+
+  reg.register('allocate_buffer', (args) => {
+    const size = args[0].value;
+    if (size < 0 || size > 65536) return SVALUE_ZERO;
+    return { type: T_BUFFER, value: Buffer.alloc(size) };
+  });
+
+  reg.register('read_buffer', (args) => {
+    const buf = args[0];
+    if (buf.type === T_BUFFER) {
+      const start = args[1]?.value ?? 0;
+      const len = args[2]?.value ?? buf.value.length;
+      return { type: T_BUFFER, value: buf.value.subarray(start, start + len) };
+    }
+    return SVALUE_ZERO;
+  });
+
+  reg.register('write_buffer', (args) => {
+    const buf = args[0];
+    if (buf.type !== T_BUFFER) return SVALUE_ZERO;
+    const start = args[1].value;
+    const data = args[2];
+    if (data.type === T_STRING) {
+      Buffer.from(data.value).copy(buf.value, start);
+    } else if (data.type === T_INT) {
+      buf.value[start] = data.value & 0xFF;
+    } else if (data.type === T_BUFFER) {
+      data.value.copy(buf.value, start);
+    }
+    return mkInt(1);
+  });
+
+  reg.register('bind', (args) => {
+    const fp = args[0];
+    const obj = args[1];
+    if (fp.type !== T_FUNCTION || obj.type !== T_OBJECT) return SVALUE_ZERO;
+    const newFp = { ...fp.value, boundObj: obj.value };
+    return mkFunction(newFp);
   });
 }
