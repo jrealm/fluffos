@@ -15,6 +15,11 @@ export class Connection {
     this.onClose = null;
     this.remoteAddress = socket.remoteAddress;
     this.remotePort = socket.remotePort;
+    this.lastInputTime = Date.now();
+    this.snoopedBy = null;
+    this.snooping = null;
+    this.charMode = false;
+    this.charCallback = null;
 
     this.telnet = new TelnetParser();
     this.telnet.onData = (buf) => this._onTelnetData(buf);
@@ -26,11 +31,22 @@ export class Connection {
   }
 
   _onTelnetData(buf) {
+    this.lastInputTime = Date.now();
     this.inputBuffer += buf.toString('utf8');
     this._processLines();
   }
 
   _processLines() {
+    if (this.charMode && this.charCallback && this.inputBuffer.length > 0) {
+      const ch = this.inputBuffer[0];
+      this.inputBuffer = this.inputBuffer.slice(1);
+      const cb = this.charCallback;
+      this.charMode = false;
+      this.charCallback = null;
+      cb(ch);
+      return;
+    }
+
     let idx;
     while ((idx = this.inputBuffer.indexOf('\n')) >= 0) {
       const line = this.inputBuffer.slice(0, idx);

@@ -1,4 +1,4 @@
-import { mkInt, mkString, SVALUE_ZERO, T_OBJECT, T_STRING } from '../../vm/svalue.mjs';
+import { mkInt, mkString, SVALUE_ZERO, T_OBJECT, T_STRING, T_ARRAY } from '../../vm/svalue.mjs';
 
 export function registerInteractiveEfuns(reg, driver) {
   reg.register('write', (args) => {
@@ -65,6 +65,112 @@ export function registerInteractiveEfuns(reg, driver) {
   reg.register('this_player', () => {
     if (driver.currentPlayer) {
       return { type: T_OBJECT, value: driver.currentPlayer };
+    }
+    return SVALUE_ZERO;
+  });
+
+  reg.register('say', (args) => {
+    const msg = args[0].type === T_STRING ? args[0].value : String(args[0].value);
+    const env = driver.currentObject?.environment;
+    if (!env) return SVALUE_ZERO;
+
+    const excludeSet = new Set();
+    excludeSet.add(driver.currentObject);
+    if (args[1]) {
+      if (args[1].type === T_ARRAY) {
+        for (const sv of args[1].value) {
+          if (sv.type === T_OBJECT) excludeSet.add(sv.value);
+        }
+      } else if (args[1].type === T_OBJECT) {
+        excludeSet.add(args[1].value);
+      }
+    }
+
+    for (const obj of env.inventory) {
+      if (!excludeSet.has(obj) && obj.interactive) {
+        obj.interactive.send(msg);
+      }
+    }
+    return SVALUE_ZERO;
+  });
+
+  reg.register('tell_room', (args) => {
+    const room = args[0].type === T_OBJECT ? args[0].value : null;
+    if (!room) return SVALUE_ZERO;
+    const msg = args[1].type === T_STRING ? args[1].value : String(args[1].value);
+
+    const excludeSet = new Set();
+    if (args[2]) {
+      if (args[2].type === T_ARRAY) {
+        for (const sv of args[2].value) {
+          if (sv.type === T_OBJECT) excludeSet.add(sv.value);
+        }
+      } else if (args[2].type === T_OBJECT) {
+        excludeSet.add(args[2].value);
+      }
+    }
+
+    for (const obj of room.inventory) {
+      if (!excludeSet.has(obj) && obj.interactive) {
+        obj.interactive.send(msg);
+      }
+    }
+    return SVALUE_ZERO;
+  });
+
+  reg.register('shout', (args) => {
+    const msg = args[0].type === T_STRING ? args[0].value : String(args[0].value);
+    for (const [, obj] of driver.objects.objects) {
+      if (obj.interactive && !obj.isDestructed()) {
+        obj.interactive.send(msg);
+      }
+    }
+    return SVALUE_ZERO;
+  });
+
+  reg.register('receive', (args) => {
+    const msg = args[0].type === T_STRING ? args[0].value : String(args[0].value);
+    if (driver.currentObject?.interactive) {
+      driver.currentObject.interactive.send(msg);
+    }
+    return SVALUE_ZERO;
+  });
+
+  reg.register('get_char', (args) => {
+    const funcName = args[0].value;
+    if (driver.currentObject?.interactive) {
+      const obj = driver.currentObject;
+      const conn = obj.interactive;
+      conn.charMode = true;
+      conn.charCallback = (ch) => {
+        driver.apply(funcName, obj, [mkString(ch)]);
+      };
+    }
+    return SVALUE_ZERO;
+  });
+
+  reg.register('query_ip_number', (args) => {
+    const obj = args.length > 0 && args[0].type === T_OBJECT ? args[0].value : driver.currentObject;
+    if (obj?.interactive) {
+      const addr = obj.interactive.remoteAddress ?? '';
+      return mkString(addr.replace(/^::ffff:/, ''));
+    }
+    return SVALUE_ZERO;
+  });
+
+  reg.register('query_ip_name', (args) => {
+    const obj = args.length > 0 && args[0].type === T_OBJECT ? args[0].value : driver.currentObject;
+    if (obj?.interactive) {
+      const addr = obj.interactive.remoteAddress ?? '';
+      return mkString(addr.replace(/^::ffff:/, ''));
+    }
+    return SVALUE_ZERO;
+  });
+
+  reg.register('query_idle', (args) => {
+    const obj = args[0].type === T_OBJECT ? args[0].value : null;
+    if (obj?.interactive) {
+      return mkInt(Math.floor((Date.now() - obj.interactive.lastInputTime) / 1000));
     }
     return SVALUE_ZERO;
   });
