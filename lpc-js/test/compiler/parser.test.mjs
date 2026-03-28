@@ -281,3 +281,40 @@ describe('parser — declarations', () => {
     assert.equal(prog.body[0].params[0].typeName, 'string*');
   });
 });
+
+describe('parser — modifiers', () => {
+  it('parses private function', () => {
+    const prog = parse('private int secret() { return 1; }');
+    assert.equal(prog.body[0].flags & 0x01, 0x01);
+  });
+
+  it('parses nomask function', () => {
+    const prog = parse('nomask void setup() { }');
+    assert.ok(prog.body[0].flags & 0x10);
+  });
+
+  it('parses static nosave variable', () => {
+    const prog = parse('static nosave int cache = 0;');
+    assert.ok(prog.body[0].flags);
+  });
+});
+
+describe('parser — class declaration', () => {
+  it('parses class definition', () => {
+    const prog = parse('class point { int x; int y; }');
+    assert.equal(prog.body[0].type, 'ClassDecl');
+    assert.equal(prog.body[0].name, 'point');
+    assert.equal(prog.body[0].members.length, 2);
+    assert.equal(prog.body[0].members[0].typeName, 'int');
+    assert.equal(prog.body[0].members[0].name, 'x');
+  });
+});
+
+describe('parser — scope resolution', () => {
+  it('parses ::func() call', () => {
+    const prog = parse('void f() { ::create(); }');
+    const stmt = prog.body[0].body.statements[0];
+    assert.equal(stmt.expression.type, 'ScopeCallExpression');
+    assert.equal(stmt.expression.name, 'create');
+  });
+});

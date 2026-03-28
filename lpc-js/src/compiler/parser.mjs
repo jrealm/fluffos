@@ -1,6 +1,26 @@
 import { tokenize, T } from './lexer.mjs';
 import * as AST from './ast.mjs';
 
+const MOD_PRIVATE = 0x01;
+const MOD_PROTECTED = 0x02;
+const MOD_PUBLIC = 0x04;
+const MOD_STATIC = 0x08;
+const MOD_NOMASK = 0x10;
+const MOD_NOSAVE = 0x20;
+const MOD_VARARGS = 0x40;
+
+const MOD_MAP = {
+  [T.PRIVATE]: MOD_PRIVATE,
+  [T.PROTECTED]: MOD_PROTECTED,
+  [T.PUBLIC]: MOD_PUBLIC,
+  [T.STATIC]: MOD_STATIC,
+  [T.NOMASK]: MOD_NOMASK,
+  [T.NOSAVE]: MOD_NOSAVE,
+  [T.VARARGS]: MOD_VARARGS,
+};
+
+export { MOD_PRIVATE, MOD_PROTECTED, MOD_PUBLIC, MOD_STATIC, MOD_NOMASK, MOD_NOSAVE, MOD_VARARGS };
+
 class Parser {
   constructor(tokens) {
     this.tokens = tokens;
@@ -39,9 +59,14 @@ class Parser {
     if (this.at(T.INHERIT)) {
       return this.parseInherit();
     }
+    // Class declaration: class name { ... }
+    if (this.at(T.CLASS) && this.tokens[this.pos + 1]?.type === T.IDENT &&
+        this.tokens[this.pos + 2]?.type === T.LBRACE) {
+      return this.parseClassDecl();
+    }
     let flags = 0;
     while (this.isModifier()) {
-      this.advance();
+      flags |= MOD_MAP[this.advance().type];
     }
     const typeTok = this.parseTypeName();
     let typeName = typeTok;
@@ -54,6 +79,23 @@ class Parser {
     } else {
       return this.parseGlobalVarDecl(typeName, name, flags);
     }
+  }
+
+  parseClassDecl() {
+    const line = this.peek().line;
+    this.expect(T.CLASS);
+    const name = this.expect(T.IDENT).value;
+    this.expect(T.LBRACE);
+    const members = [];
+    while (!this.at(T.RBRACE) && !this.at(T.EOF)) {
+      let typeName = this.parseTypeName();
+      if (this.match(T.STAR)) typeName += '*';
+      const memberName = this.expect(T.IDENT).value;
+      this.expect(T.SEMICOLON);
+      members.push({ typeName, name: memberName });
+    }
+    this.expect(T.RBRACE);
+    return AST.classDecl(name, members, line);
   }
 
   isModifier() {
@@ -468,6 +510,16 @@ class Parser {
 
   parsePrimary() {
     const tok = this.peek();
+
+    // Scope resolution ::func()
+    if (tok.type === T.COLON_COLON) {
+      this.advance();
+      const name = this.expect(T.IDENT).value;
+      this.expect(T.LPAREN);
+      const args = this.parseArgList();
+      this.expect(T.RPAREN);
+      return AST.scopeCallExpr(name, args, tok.line);
+    }
 
     if (tok.type === T.INT_LIT) {
       this.advance();
