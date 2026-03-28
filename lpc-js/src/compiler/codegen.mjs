@@ -744,8 +744,39 @@ class CodeGen {
   }
 
   genUpdate(node) {
+    // Handle index increment/decrement: arr[i]++ or arr[i]--
+    if (node.operand.type === 'IndexExpression' || node.operand.type === 'NegativeIndex') {
+      // Emit: obj[idx] = obj[idx] +/- 1
+      // For postfix: push old value, then update
+      this.genExpr(node.operand.object); // [obj]
+      this.genExpr(node.operand.index);  // [obj, idx]
+      // Duplicate obj and idx for the read
+      this.emitter.emitOp(OP.DUP); // [obj, idx, idx] — need to dup both
+      // Actually we need [obj, idx, obj, idx] — hard without a DUP2.
+      // Simpler: just generate as assignment expression
+      // obj[idx] = obj[idx] + 1
+      // But we don't have the machinery for that yet.
+      // Simplest correct approach: emit as CALL_EFUN to a helper, or
+      // use the expression form: we already have STORE_INDEX.
+      // Re-read obj and idx, get value, inc, store.
+      this.emitter.emitOp(OP.POP); // discard idx
+      this.emitter.emitOp(OP.POP); // discard obj
+
+      // For now: expr approach — obj[idx] = obj[idx] + 1, result is new value
+      this.genExpr(node.operand.object);
+      this.genExpr(node.operand.index);
+      this.genExpr(node.operand.object);
+      this.genExpr(node.operand.index);
+      this.emitter.emitOp(OP.INDEX); // [obj, idx, old_value]
+      this.emitter.emitOp(OP.PUSH_1);
+      this.emitter.emitOp(node.operator === '++' ? OP.ADD : OP.SUB);
+      this.emitter.emitOp(OP.STORE_INDEX); // [new_value]
+      return;
+    }
+
+    if (!node.operand?.name) throw new Error(`UpdateExpression on non-identifier: ${node.operand?.type} at line ${node.line ?? '?'}`);
     const uv = this.resolveVar(node.operand.name);
-    if (!uv) throw new Error(`Undefined variable: ${node.operand.name}`);
+    if (!uv) throw new Error(`Undefined variable: ${node.operand.name} at line ${node.line ?? '?'}`);
 
     const loadOp = uv.scope === 'local' ? OP.LOAD_LOCAL : OP.LOAD_GLOBAL;
     const storeOp = uv.scope === 'local' ? OP.STORE_LOCAL : OP.STORE_GLOBAL;

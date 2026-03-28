@@ -305,11 +305,24 @@ class Parser {
     let init = null;
     if (!this.at(T.SEMICOLON)) {
       if (this.isType()) {
-        const typeName = this.parseTypeName();
+        let typeName = this.parseTypeName();
+        if (this.match(T.STAR)) typeName += '*';
         const name = this.expect(T.IDENT).value;
         let varInit = null;
         if (this.match(T.EQ)) varInit = this.parseExpression();
-        init = AST.varDecl(typeName, name, varInit, 0, line);
+        // Support: for (int i = 0, j = 0; ...)
+        if (this.at(T.COMMA)) {
+          const decls = [AST.varDecl(typeName, name, varInit, 0, line)];
+          while (this.match(T.COMMA)) {
+            const vName = this.expect(T.IDENT).value;
+            let vInit = null;
+            if (this.match(T.EQ)) vInit = this.parseExpression();
+            decls.push(AST.varDecl(typeName, vName, vInit, 0, line));
+          }
+          init = AST.block(decls, line);
+        } else {
+          init = AST.varDecl(typeName, name, varInit, 0, line);
+        }
       } else {
         init = this.parseCommaExpression();
       }
