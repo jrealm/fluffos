@@ -46,4 +46,41 @@ export function registerObjectEfuns(reg) {
     }
     return SVALUE_ZERO;
   });
+
+  reg.register('function_exists', (args) => {
+    const funcName = args[0].value;
+    const obj = args[1]?.type === T_OBJECT ? args[1].value : null;
+    if (!obj?.program) return SVALUE_ZERO;
+    for (const f of obj.program.functions) {
+      if (f.name === funcName) return mkString(obj.program.filename);
+    }
+    for (const inh of (obj.program.inherits ?? [])) {
+      for (const f of inh.program.functions) {
+        if (f.name === funcName) return mkString(inh.program.filename);
+      }
+    }
+    return SVALUE_ZERO;
+  });
+
+  reg.register('first_inventory', (args) => {
+    if (args[0].type !== T_OBJECT) return SVALUE_ZERO;
+    const inv = args[0].value.inventory;
+    const first = inv.values().next();
+    if (first.done) return SVALUE_ZERO;
+    return { type: T_OBJECT, value: first.value };
+  });
+
+  reg.register('next_inventory', (args) => {
+    if (args[0].type !== T_OBJECT) return SVALUE_ZERO;
+    const obj = args[0].value;
+    const env = obj.environment;
+    if (!env) return SVALUE_ZERO;
+    const iter = env.inventory.values();
+    let found = false;
+    for (const item of iter) {
+      if (found) return { type: T_OBJECT, value: item };
+      if (item === obj) found = true;
+    }
+    return SVALUE_ZERO;
+  });
 }
