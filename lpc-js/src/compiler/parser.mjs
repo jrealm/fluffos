@@ -163,8 +163,12 @@ class Parser {
         break;
       }
       // Parameter name is optional in prototypes (e.g., void foo(string);)
+      // Also allow type keywords as parameter names (e.g., string status)
       let name;
       if (this.at(T.IDENT)) {
+        name = this.advance().value;
+      } else if (this.isType() && !this.at(T.TYPE_VOID)) {
+        // Type keyword used as variable name (e.g., "string status" where status is a param name)
         name = this.advance().value;
       } else {
         name = `_arg${params.length}`;

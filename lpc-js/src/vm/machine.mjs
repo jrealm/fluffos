@@ -598,7 +598,8 @@ export class Machine {
           if (collection.type === T_ARRAY) {
             this._foreachStack.push({ type: 'array', items: collection.value, index: 0 });
           } else {
-            throw new RuntimeError('foreach requires array');
+            // Non-array (e.g., 0/null) — push empty iteration
+            this._foreachStack.push({ type: 'array', items: [], index: 0 });
           }
           break;
         }

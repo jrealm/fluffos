@@ -37,9 +37,15 @@ export function registerInteractiveEfuns(reg, driver) {
 
     function sendTo(obj) {
       if (excludeSet.has(obj)) return;
-      if (obj.interactive) obj.interactive.send(msg);
-      // Also call receive_message on the object
-      driver.apply('receive_message', obj, [args[0], args[1]]);
+      // FluffOS: message() calls receive_message() on the target.
+      // If the object has receive_message, call it. Otherwise direct send.
+      const hasFn = obj.program?.findFunction('receive_message') ||
+                    obj.program?.findInheritedFunction('receive_message');
+      if (hasFn) {
+        driver.apply('receive_message', obj, [args[0], args[1]]);
+      } else if (obj.interactive) {
+        obj.interactive.send(msg);
+      }
     }
 
     if (targets.type === T_OBJECT) {
@@ -62,15 +68,13 @@ export function registerInteractiveEfuns(reg, driver) {
 
   reg.register('input_to', (args) => {
     const func = args[0];
-    // input_to(func, [flag], [extra_args...])
-    // func can be string or function pointer
-    // flag: 1 = no echo (passwords)
-    // Remaining args after flag are passed to callback after the user input
+    // input_to(func, [args...])
+    // FluffOS convention: int args are flags (OR'd), non-int args passed to callback
     let flag = 0;
     let extraArgs = [];
     for (let i = 1; i < args.length; i++) {
-      if (args[i].type === T_INT && extraArgs.length === 0 && i === 1) {
-        flag = args[i].value;
+      if (args[i].type === T_INT) {
+        flag |= args[i].value;
       } else {
         extraArgs.push(args[i]);
       }
@@ -83,9 +87,21 @@ export function registerInteractiveEfuns(reg, driver) {
       conn.setInputTo((line) => {
         driver.currentObject = obj;
         driver.currentPlayer = player;
+        driver.vm._currentObject = obj;
         const callArgs = [mkString(line), ...extraArgs];
         if (func.type === T_FUNCTION) {
-          driver.vm._callFunctionPtr(func.value, callArgs);
+          // Set up globals for the target object before calling function pointer
+          const savedProg = driver.vm.currentProgram;
+          const savedGlobals = driver.vm.globals;
+          driver.vm.currentProgram = obj.program;
+          driver.vm.globals = obj.variables;
+          try {
+            driver.vm._callFunctionPtr(func.value, callArgs);
+          } finally {
+            obj.variables = driver.vm.globals;
+            driver.vm.currentProgram = savedProg;
+            driver.vm.globals = savedGlobals;
+          }
         } else {
           driver.apply(func.value, obj, callArgs);
         }

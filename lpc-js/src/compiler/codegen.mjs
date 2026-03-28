@@ -73,8 +73,8 @@ class CodeGen {
     for (const decl of this.ast.body) {
       if (decl.type === 'FunctionDecl') {
         this.localFunctionNames.add(decl.name);
-        // Only assign function index for actual definitions (not prototypes)
-        if (decl.body && !this.functionNames.has(decl.name)) {
+        // Assign function index on first encounter (prototype or definition)
+        if (!this.functionNames.has(decl.name)) {
           this.functionNames.set(decl.name, this.functionNames.size);
         }
       } else if (decl.type === 'VarDecl') {
@@ -95,13 +95,26 @@ class CodeGen {
       }
     }
 
+    // Pre-allocate function table slots based on first-pass ordering
+    this.emitter.functions = new Array(this.functionNames.size).fill(null);
+
     // Second pass: generate code
     for (const decl of this.ast.body) {
       if (decl.type === 'FunctionDecl' && decl.body) {
         this.compileFunction(decl);
-      } else if (decl.type === 'FunctionDecl' && !decl.body) {
-        // Function prototype (forward declaration) — skip, don't add to function table.
-        // The actual definition will be added when compiled.
+      }
+    }
+
+    // Fill any remaining null slots (prototypes without definitions)
+    for (let i = 0; i < this.emitter.functions.length; i++) {
+      if (this.emitter.functions[i] === null) {
+        // Find the name for this index
+        for (const [name, idx] of this.functionNames) {
+          if (idx === i) {
+            this.emitter.functions[i] = { name, numArgs: 0, numLocals: 0, offset: -1, flags: 0, type: 0 };
+            break;
+          }
+        }
       }
     }
 
@@ -131,10 +144,11 @@ class CodeGen {
       }
     }
 
-    this.emitter.functions.push({
+    const fnIdx = this.functionNames.get(decl.name);
+    this.emitter.functions[fnIdx] = {
       name: decl.name, numArgs: decl.params.length, numLocals: this.locals.size,
       offset, flags: 0, type: 0,
-    });
+    };
 
     this.params = null;
     this.locals = null;
