@@ -296,13 +296,23 @@ class Parser {
     const line = this.peek().line;
     this.expect(T.FOREACH);
     this.expect(T.LPAREN);
-    let varType = this.parseTypeName();
-    const varName = this.expect(T.IDENT).value;
+
+    const vars = [];
+    let typeName = this.parseTypeName();
+    let varName = this.expect(T.IDENT).value;
+    vars.push({ typeName, name: varName });
+
+    if (this.match(T.COMMA)) {
+      let typeName2 = this.parseTypeName();
+      let varName2 = this.expect(T.IDENT).value;
+      vars.push({ typeName: typeName2, name: varName2 });
+    }
+
     this.expect(T.IN);
     const expr = this.parseExpression();
     this.expect(T.RPAREN);
     const body = this.parseStatement();
-    return AST.foreachStatement(varType, varName, expr, body, line);
+    return AST.foreachStatement(vars, expr, body, line);
   }
 
   parseSwitch() {

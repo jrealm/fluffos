@@ -30,8 +30,8 @@ export function forStatement(init, condition, update, body, line) {
   return { type: 'ForStatement', init, condition, update, body, line };
 }
 
-export function foreachStatement(varType, varName, expr, body, line) {
-  return { type: 'ForeachStatement', varType, varName, expr, body, line };
+export function foreachStatement(vars, expr, body, line) {
+  return { type: 'ForeachStatement', vars, expr, body, line };
 }
 
 export function switchStatement(discriminant, cases, line) {

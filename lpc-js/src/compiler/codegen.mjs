@@ -141,6 +141,13 @@ class CodeGen {
       for (const c of node.cases) {
         for (const s of c.body) this.scanLocals(s);
       }
+    } else if (node.type === 'ForeachStatement') {
+      for (const v of node.vars) {
+        if (!this.locals.has(v.name)) {
+          this.locals.set(v.name, this.params.size + this.locals.size);
+        }
+      }
+      this.scanLocals(node.body);
     }
   }
 
@@ -179,6 +186,7 @@ class CodeGen {
       case 'DoWhileStatement': this.genDoWhile(node); break;
       case 'ForStatement': this.genFor(node); break;
       case 'SwitchStatement': this.genSwitch(node); break;
+      case 'ForeachStatement': this.genForeach(node); break;
       case 'BreakStatement': this.genBreak(); break;
       case 'ContinueStatement': this.genContinue(); break;
       case 'ThrowStatement':
@@ -390,6 +398,45 @@ class CodeGen {
     this.emitter.emitOp(OP.JUMP);
     const target = this.continueStack[this.continueStack.length - 1];
     this.emitter.emitShort(target >= 0 ? target : 0);
+  }
+
+  genForeach(node) {
+    this.genExpr(node.expr);
+
+    if (node.vars.length === 1) {
+      const v = this.resolveVar(node.vars[0].name);
+      this.emitter.emitOp(OP.FOREACH_INIT);
+      const loopStart = this.emitter.currentOffset();
+      this.emitter.emitOp(OP.FOREACH_NEXT);
+      const exitHole = this.emitter.currentOffset();
+      this.emitter.emitShort(0);
+      this.emitter.emit(v.scope === 'local' ? 0 : 1);
+      this.emitter.emit(v.index);
+
+      this.genStatement(node.body);
+
+      this.emitter.emitOp(OP.JUMP);
+      this.emitter.emitShort(loopStart);
+      this.emitter.patchShort(exitHole, this.emitter.currentOffset());
+      this.emitter.emitOp(OP.FOREACH_END);
+    } else {
+      const kv = this.resolveVar(node.vars[0].name);
+      const vv = this.resolveVar(node.vars[1].name);
+      this.emitter.emitOp(OP.FOREACH_INIT_MAP);
+      const loopStart = this.emitter.currentOffset();
+      this.emitter.emitOp(OP.FOREACH_NEXT_MAP);
+      const exitHole = this.emitter.currentOffset();
+      this.emitter.emitShort(0);
+      this.emitter.emit(kv.index);
+      this.emitter.emit(vv.index);
+
+      this.genStatement(node.body);
+
+      this.emitter.emitOp(OP.JUMP);
+      this.emitter.emitShort(loopStart);
+      this.emitter.patchShort(exitHole, this.emitter.currentOffset());
+      this.emitter.emitOp(OP.FOREACH_END);
+    }
   }
 
   // ---- Expression generation ----

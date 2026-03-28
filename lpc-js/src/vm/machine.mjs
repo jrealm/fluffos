@@ -478,6 +478,61 @@ export class Machine {
           break;
         }
 
+        case OP.FOREACH_INIT: {
+          const collection = this.stack.pop();
+          if (collection.type === T_ARRAY) {
+            this._foreachStack.push({ type: 'array', items: collection.value, index: 0 });
+          } else {
+            throw new RuntimeError('foreach requires array');
+          }
+          break;
+        }
+
+        case OP.FOREACH_NEXT: {
+          const exitOffset = this.readShort();
+          const scope = bc[this.pc++];
+          const varIdx = bc[this.pc++];
+          const state = this._foreachStack[this._foreachStack.length - 1];
+          if (state.index >= state.items.length) {
+            this.pc = exitOffset;
+          } else {
+            const val = state.items[state.index++];
+            if (scope === 0) this.locals[varIdx] = val;
+            else this.globals[varIdx] = val;
+          }
+          break;
+        }
+
+        case OP.FOREACH_INIT_MAP: {
+          const collection = this.stack.pop();
+          if (collection.type === T_MAPPING) {
+            this._foreachStack.push({ type: 'mapping', entries: [...collection.value.entries()], index: 0 });
+          } else {
+            throw new RuntimeError('foreach mapping requires mapping');
+          }
+          break;
+        }
+
+        case OP.FOREACH_NEXT_MAP: {
+          const exitOffset = this.readShort();
+          const keyIdx = bc[this.pc++];
+          const valIdx = bc[this.pc++];
+          const state = this._foreachStack[this._foreachStack.length - 1];
+          if (state.index >= state.entries.length) {
+            this.pc = exitOffset;
+          } else {
+            const [key, val] = state.entries[state.index++];
+            this.locals[keyIdx] = mkString(String(key));
+            this.locals[valIdx] = val;
+          }
+          break;
+        }
+
+        case OP.FOREACH_END: {
+          this._foreachStack.pop();
+          break;
+        }
+
         default:
           throw new RuntimeError(`Unknown opcode: 0x${op.toString(16)} at pc=${this.pc - 1}`);
       } } catch (e) {

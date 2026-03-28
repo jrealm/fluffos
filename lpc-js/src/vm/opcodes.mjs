@@ -76,6 +76,8 @@ export const OP = {
   FOREACH_INIT: 0x90,
   FOREACH_NEXT: 0x91,
   FOREACH_END:  0x92,
+  FOREACH_INIT_MAP: 0x93,
+  FOREACH_NEXT_MAP: 0x94,
 
   // Reverse index
   RINDEX:       0x75,
