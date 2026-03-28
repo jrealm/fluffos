@@ -565,10 +565,16 @@ class CodeGen {
           this.emitter.emitShort(nameIdx);
           this.emitter.emit(node.partialArgs.length);
         } else {
-          // Inline closure
+          // Inline closure: emit JUMP over the closure body
           const closureName = `__closure_${this.emitter.functions.length}`;
           let maxParam = 0;
           this._scanLambdaParams(node.body, (n) => { if (n > maxParam) maxParam = n; });
+
+          // Jump over the closure body code
+          this.emitter.emitOp(OP.JUMP);
+          const jumpHole = this.emitter.currentOffset();
+          this.emitter.emitShort(0);
+
           const savedParams = this.params;
           const savedLocals = this.locals;
           this.params = new Map();
@@ -585,6 +591,9 @@ class CodeGen {
           });
           this.params = savedParams;
           this.locals = savedLocals;
+
+          // Patch jump to land here (after closure body)
+          this.emitter.patchShort(jumpHole, this.emitter.currentOffset());
           const fnIdx = this.emitter.functions.length - 1;
           this.emitter.emitOp(OP.MAKE_CLOSURE);
           this.emitter.emitShort(fnIdx);

@@ -1,4 +1,5 @@
-import { mkInt, mkString, mkFloat, T_INT, T_STRING, T_FLOAT, T_ARRAY, T_MAPPING, T_OBJECT, T_FUNCTION, T_BUFFER, SVALUE_ZERO } from '../../vm/svalue.mjs';
+import { mkInt, mkString, mkFloat, mkArray, T_INT, T_STRING, T_FLOAT, T_ARRAY, T_MAPPING, T_OBJECT, T_FUNCTION, T_BUFFER, SVALUE_ZERO } from '../../vm/svalue.mjs';
+import { getMachine } from '../apply.mjs';
 
 const TYPE_NAMES = {
   [T_INT]: 'int',
@@ -57,4 +58,60 @@ export function registerMiscEfuns(reg) {
   });
 
   reg.register('write', () => SVALUE_ZERO);
+
+  reg.register('evaluate', (args) => {
+    const fp = args[0];
+    if (fp.type !== T_FUNCTION) return fp;
+    const vm = getMachine();
+    return vm._callFunctionPtr(fp.value, args.slice(1));
+  });
+
+  reg.register('functionp', (args) => {
+    return mkInt(args[0].type === T_FUNCTION ? 1 : 0);
+  });
+
+  reg.register('sscanf', (args) => {
+    const input = args[0].value;
+    const format = args[1].value;
+    const results = [];
+    let inputPos = 0;
+    let fmtPos = 0;
+
+    while (fmtPos < format.length && inputPos <= input.length) {
+      if (format[fmtPos] === '%') {
+        fmtPos++;
+        if (fmtPos >= format.length) break;
+        const spec = format[fmtPos++];
+        if (spec === 'd') {
+          let numStr = '';
+          if (input[inputPos] === '-') numStr += input[inputPos++];
+          while (inputPos < input.length && input[inputPos] >= '0' && input[inputPos] <= '9') {
+            numStr += input[inputPos++];
+          }
+          if (numStr === '' || numStr === '-') break;
+          results.push(mkInt(parseInt(numStr, 10)));
+        } else if (spec === 's') {
+          let endChar = null;
+          if (fmtPos < format.length && format[fmtPos] !== '%') endChar = format[fmtPos];
+          let str = '';
+          if (endChar) {
+            while (inputPos < input.length && input[inputPos] !== endChar) str += input[inputPos++];
+          } else {
+            while (inputPos < input.length && input[inputPos] !== ' ' && input[inputPos] !== '\t' && input[inputPos] !== '\n') {
+              str += input[inputPos++];
+            }
+          }
+          results.push(mkString(str));
+        } else if (spec === '%') {
+          if (input[inputPos] !== '%') break;
+          inputPos++;
+        }
+      } else {
+        if (input[inputPos] !== format[fmtPos]) break;
+        inputPos++;
+        fmtPos++;
+      }
+    }
+    return mkArray(results);
+  });
 }
