@@ -65,11 +65,15 @@ export function registerMiscEfuns(reg) {
     const results = [];
     let inputPos = 0;
     let fmtPos = 0;
+    let matchCount = 0;
 
     while (fmtPos < format.length && inputPos <= input.length) {
       if (format[fmtPos] === '%') {
         fmtPos++;
         if (fmtPos >= format.length) break;
+        // %*s / %*d — suppress output (match but don't count)
+        let suppress = false;
+        if (format[fmtPos] === '*') { suppress = true; fmtPos++; }
         const spec = format[fmtPos++];
         if (spec === 'd') {
           let numStr = '';
@@ -78,7 +82,8 @@ export function registerMiscEfuns(reg) {
             numStr += input[inputPos++];
           }
           if (numStr === '' || numStr === '-') break;
-          results.push(mkInt(parseInt(numStr, 10)));
+          if (!suppress) results.push(mkInt(parseInt(numStr, 10)));
+          matchCount++;
         } else if (spec === 's') {
           let endChar = null;
           if (fmtPos < format.length && format[fmtPos] !== '%') endChar = format[fmtPos];
@@ -90,7 +95,8 @@ export function registerMiscEfuns(reg) {
               str += input[inputPos++];
             }
           }
-          results.push(mkString(str));
+          if (!suppress) results.push(mkString(str));
+          matchCount++;
         } else if (spec === '%') {
           if (input[inputPos] !== '%') break;
           inputPos++;
@@ -101,7 +107,8 @@ export function registerMiscEfuns(reg) {
         fmtPos++;
       }
     }
-    return mkArray(results);
+    // Return count of all matched specifiers (including suppressed ones)
+    return mkInt(matchCount);
   });
 
   reg.register('allocate_mapping', () => {

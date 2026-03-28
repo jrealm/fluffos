@@ -31,6 +31,12 @@ export function registerTypeEfuns(reg) {
 
   reg.register('bufferp', (args) => mkInt(args[0].type === T_BUFFER ? 1 : 0));
 
+  reg.register('wizardp', (args) => {
+    // In CatWorld, wizardp checks if user has wizard status
+    // For now, always return 0 (no wizards)
+    return mkInt(0);
+  });
+
   reg.register('pointerp', (args) => mkInt(args[0].type === T_ARRAY ? 1 : 0));
   reg.register('classp', (args) => mkInt(args[0].type === T_CLASS ? 1 : 0));
 }

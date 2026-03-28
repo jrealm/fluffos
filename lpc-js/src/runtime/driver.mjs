@@ -433,7 +433,7 @@ export class Driver {
       const logDir = driver.config['log directory'] ?? '/log';
       const writeFile = driver.efuns.registry.get('write_file');
       if (writeFile) {
-        writeFile([mkString(logDir + '/' + args[0].value), mkString(args[1].value)]);
+        try { writeFile([mkString(logDir + '/' + args[0].value), mkString(args[1].value)]); } catch {}
       }
       return SVALUE_ZERO;
     });
