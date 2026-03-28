@@ -1,7 +1,7 @@
 import { parse } from './parser.mjs';
+import { preprocess } from './preprocessor.mjs';
 import { Program } from '../vm/program.mjs';
 import { OP } from '../vm/opcodes.mjs';
-
 import * as AST from './ast.mjs';
 
 class Emitter {
@@ -628,8 +628,10 @@ class CodeGen {
 }
 
 export function compile(source, filename = '<input>') {
-  const ast = parse(source, filename);
+  const ppResult = preprocess(source);
+  const ast = parse(ppResult.source, filename);
   const gen = new CodeGen(ast);
+  gen.pragmas = ppResult.pragmas;
   const prog = gen.compile();
   prog.filename = filename;
   return prog;
