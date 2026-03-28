@@ -410,6 +410,12 @@ export class Driver {
     this.server = new Server();
     this.server.onConnection = (conn) => this._handleNewConnection(conn);
     await this.server.listen(port);
+
+    const wsPort = this.config['websocket port number'];
+    if (wsPort) {
+      await this.server.listenWebSocket(parseInt(wsPort, 10));
+    }
+
     return this.server.port;
   }
 
@@ -449,6 +455,30 @@ export class Driver {
 
     conn.onLine = (line) => this._handleInput(conn, line);
     conn.onClose = () => this._handleDisconnect(conn);
+
+    // GMCP receive handler
+    conn.onGmcp = (msg, data) => {
+      if (loginObj && !loginObj.isDestructed()) {
+        this.currentObject = loginObj;
+        this.currentPlayer = loginObj;
+        apply('receive_gmcp', loginObj, [mkString(msg), data != null ? mkString(JSON.stringify(data)) : SVALUE_ZERO]);
+        this.currentObject = null;
+        this.currentPlayer = null;
+      }
+    };
+
+    // Negotiate GMCP and MXP for Telnet connections
+    if (conn.protocol === 'telnet') {
+      conn.sendTelnetCommand(251, 201); // IAC WILL GMCP
+      conn.sendTelnetCommand(251, 91);  // IAC WILL MXP
+
+      conn.telnet.onCommand = (cmd, option) => {
+        if (cmd === 253 && option === 201) conn.gmcpEnabled = true;  // DO GMCP
+        if (cmd === 254 && option === 201) conn.gmcpEnabled = false; // DONT GMCP
+        if (cmd === 253 && option === 91) conn.mxpEnabled = true;    // DO MXP
+        if (cmd === 254 && option === 91) conn.mxpEnabled = false;   // DONT MXP
+      };
+    }
   }
 
   _handleInput(conn, line) {

@@ -174,4 +174,51 @@ export function registerInteractiveEfuns(reg, driver) {
     }
     return SVALUE_ZERO;
   });
+
+  reg.register('websocket', (args) => {
+    const obj = args.length > 0 && args[0].type === T_OBJECT ? args[0].value : driver.currentObject;
+    if (obj?.interactive) {
+      return mkInt(obj.interactive.protocol === 'websocket' ? 1 : 0);
+    }
+    return SVALUE_ZERO;
+  });
+
+  reg.register('has_gmcp', (args) => {
+    const obj = args.length > 0 && args[0].type === T_OBJECT ? args[0].value : driver.currentObject;
+    if (obj?.interactive) {
+      return mkInt(obj.interactive.gmcpEnabled ? 1 : 0);
+    }
+    return SVALUE_ZERO;
+  });
+
+  reg.register('send_gmcp', (args) => {
+    const msg = args[0].value;
+    let data = args[1]?.value ?? null;
+    if (typeof data === 'string') {
+      try { data = JSON.parse(data); } catch {}
+    }
+    if (driver.currentObject?.interactive) {
+      driver.currentObject.interactive.sendGmcp(msg, data);
+    }
+    return SVALUE_ZERO;
+  });
+
+  reg.register('has_mxp', (args) => {
+    const obj = args.length > 0 && args[0].type === T_OBJECT ? args[0].value : driver.currentObject;
+    if (obj?.interactive) {
+      if (obj.interactive.protocol === 'websocket') return mkInt(0);
+      return mkInt(obj.interactive.mxpEnabled ? 1 : 0);
+    }
+    return SVALUE_ZERO;
+  });
+
+  reg.register('act_mxp', () => {
+    if (driver.currentObject?.interactive) {
+      const conn = driver.currentObject.interactive;
+      if (conn.protocol === 'telnet' && conn.mxpEnabled) {
+        conn.sendSubnegotiation(91, '');
+      }
+    }
+    return SVALUE_ZERO;
+  });
 }
