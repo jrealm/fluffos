@@ -24,6 +24,8 @@ export class ObjectManager {
     this.objects.set(filename, obj);
 
     if (this.onObjectCreated) this.onObjectCreated(obj);
+    // Call __INIT to initialize global variables with non-zero values
+    apply('__INIT', obj, []);
     apply('create', obj, []);
 
     return obj;
@@ -37,6 +39,7 @@ export class ObjectManager {
     this.objects.set(cloneId, clone);
 
     if (this.onObjectCreated) this.onObjectCreated(clone);
+    apply('__INIT', clone, []);
     apply('create', clone, []);
 
     return clone;

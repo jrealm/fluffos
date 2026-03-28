@@ -19,10 +19,10 @@ export class Program {
   findInheritedFunction(name) {
     for (const inh of this.inherits) {
       const fn = inh.program.findFunction(name);
-      if (fn) return { fn, program: inh.program, varOffset: inh.varOffset };
-      // Recurse into ancestor inherits
+      if (fn) return { fn, program: inh.program, varOffset: inh.varOffset ?? 0 };
+      // Recurse into ancestor inherits — accumulate varOffset
       const deep = inh.program.findInheritedFunction(name);
-      if (deep) return deep;
+      if (deep) return { fn: deep.fn, program: deep.program, varOffset: (inh.varOffset ?? 0) + (deep.varOffset ?? 0) };
     }
     return null;
   }

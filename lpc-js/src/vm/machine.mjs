@@ -29,6 +29,7 @@ export class Machine {
     this._foreachStack = [];
     this._currentFunctionName = null;
     this._currentObject = null;
+    this._globalOffset = 0;
   }
 
   execute(program, functionName, args = []) {
@@ -49,6 +50,7 @@ export class Machine {
       functionName: this._currentFunctionName,
       fileName: this.currentProgram?.filename ?? '<unknown>',
       object: this._currentObject,
+      globalOffset: this._globalOffset,
     });
 
     this._currentFunctionName = fn.name;
@@ -143,13 +145,13 @@ export class Machine {
         }
 
         case OP.LOAD_GLOBAL: {
-          const idx = this.readShort();
-          this.stack.push(this.globals[idx]);
+          const idx = this.readShort() + this._globalOffset;
+          this.stack.push(this.globals[idx] ?? SVALUE_ZERO);
           break;
         }
 
         case OP.STORE_GLOBAL: {
-          const idx = this.readShort();
+          const idx = this.readShort() + this._globalOffset;
           this.globals[idx] = this.stack.pop();
           break;
         }
@@ -382,7 +384,13 @@ export class Machine {
             const savedProgram = this.currentProgram;
             const savedGlobals = this.globals;
             this.currentProgram = found.program;
+            // Inherited functions share the container's globals.
+            // Adjust global offset so LOAD_GLOBAL/STORE_GLOBAL in the inherited
+            // function's bytecode maps to the correct position in the merged globals.
+            const savedOffset = this._globalOffset;
+            this._globalOffset = (found.varOffset ?? 0);
             const result = this.callFunction(found.fn, args);
+            this._globalOffset = savedOffset;
             this.currentProgram = savedProgram;
             this.globals = savedGlobals;
             this.stack.push(result);

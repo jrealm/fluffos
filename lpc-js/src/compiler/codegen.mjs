@@ -109,6 +109,45 @@ class CodeGen {
       }
     }
 
+    // Generate __INIT function for global variable initializers
+    const globalInits = this.ast.body.filter(d =>
+      (d.type === 'VarDecl' && d.init) ||
+      (d.type === 'Block' && d.statements?.some(s => s.type === 'VarDecl' && s.init))
+    );
+    if (globalInits.length > 0) {
+      const initOffset = this.emitter.currentOffset();
+      for (const decl of globalInits) {
+        if (decl.type === 'VarDecl' && decl.init) {
+          this.genExpr(decl.init);
+          const gIdx = this.globals.get(decl.name);
+          if (gIdx !== undefined) {
+            this.emitter.emitOp(OP.STORE_GLOBAL);
+            this.emitter.emitShort(gIdx);
+          } else {
+            this.emitter.emitOp(OP.POP);
+          }
+        } else if (decl.type === 'Block') {
+          for (const s of decl.statements) {
+            if (s.type === 'VarDecl' && s.init) {
+              this.genExpr(s.init);
+              const gIdx = this.globals.get(s.name);
+              if (gIdx !== undefined) {
+                this.emitter.emitOp(OP.STORE_GLOBAL);
+                this.emitter.emitShort(gIdx);
+              } else {
+                this.emitter.emitOp(OP.POP);
+              }
+            }
+          }
+        }
+      }
+      this.emitter.emitOp(OP.RETURN_ZERO);
+      this.emitter.functions.push({
+        name: '__INIT', numArgs: 0, numLocals: 0,
+        offset: initOffset, flags: 0, type: 0,
+      });
+    }
+
     // Fill any remaining null slots (prototypes without definitions)
     for (let i = 0; i < this.emitter.functions.length; i++) {
       if (this.emitter.functions[i] === null) {
