@@ -62,23 +62,52 @@ yarn test     # 執行所有測試
 | `connection.mjs` | 玩家連線（行緩衝、`input_to`） |
 | `telnet.mjs` | Telnet IAC 協議解析器 |
 
-## 已實作的 Efun
+## 已實作的 Efun (~95 個)
 
-**字串：** `capitalize`、`lower_case`、`upper_case`、`strlen`、`implode`、`explode`、`replace_string`、`trim`
+**字串：** `capitalize`、`lower_case`、`upper_case`、`strlen`、`implode`、`explode`、`replace_string`、`trim`、`strsrch`、`sscanf`、`sprintf`
 
-**陣列：** `sizeof`、`member_array`、`sort_array`、`unique_array`
+**陣列：** `sizeof`、`member_array`、`sort_array`、`unique_array`、`allocate`、`filter_array`、`map_array`
 
-**映射：** `keys`、`values`、`map_delete`
+**映射：** `keys`、`values`、`map_delete`、`allocate_mapping`
 
-**型別：** `typeof`、`to_int`、`to_string`、`to_float`
+**型別謂詞：** `typeof`、`to_int`、`to_string`、`to_float`、`intp`、`stringp`、`floatp`、`arrayp`、`mapp`、`objectp`、`functionp`、`undefinedp`、`clonep`、`userp`、`living`
 
-**物件：** `this_object`、`clone_object`、`destruct`、`find_object`、`move_object`、`environment`
+**物件：** `this_object`、`clone_object`、`destruct`、`find_object`、`move_object`、`environment`、`object_name`、`base_name`、`file_name`、`all_inventory`、`deep_inventory`、`present`、`load_object`、`children`、`find_living`、`find_player`、`inherits`、`users`
 
-**互動：** `write`、`tell_object`、`message`、`input_to`、`interactive`、`add_action`、`notify_fail`、`this_player`
+**互動：** `write`、`tell_object`、`message`、`input_to`、`interactive`、`add_action`、`notify_fail`、`this_player`、`query_verb`、`enable_commands`、`disable_commands`、`command`
 
-**計時：** `call_out`、`remove_call_out`、`set_heart_beat`
+**計時：** `call_out`、`remove_call_out`、`set_heart_beat`、`query_heart_beat`
 
-**其他：** `random`、`time`、`sprintf`
+**權限：** `getuid`、`geteuid`、`seteuid`、`export_uid`
+
+**函數指標：** `evaluate`、`functionp`
+
+**檔案 I/O：** `read_file`、`write_file`、`file_size`、`mkdir`、`rm`、`get_dir`、`stat`、`log_file`
+
+**持久化：** `save_object`、`restore_object`
+
+**正規表達式：** `regexp`、`reg_assoc`、`pcre_match`
+
+**進階：** `exec`、`replace_program`、`shadow`、`query_shadowing`、`error`、`catch`、`throw`
+
+**雜湊/加密：** `hash`、`crypt`
+
+**時間：** `random`、`time`、`localtime`
+
+**資料庫：** `db_connect`、`db_exec`、`db_close`、`db_fetch`
+
+## 已實作的語言特性
+
+- Lambda/閉包 `(: func :)`、`(: $1 + 1 :)`
+- catch/throw 異常處理
+- Heredoc 字串 `@TAG...TAG`
+- 負索引 `arr[<1]`、反向範圍 `str[0..<2]`
+- foreach mapping `foreach(k, v in mapping)`
+- class 宣告與 `new(class X)` 實例化
+- `::func()` 繼承呼叫
+- 多重繼承
+- Shadow 物件攔截
+- replace_program
 
 ## 使用範例
 
