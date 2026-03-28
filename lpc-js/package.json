@@ -1,0 +1,12 @@
+{
+  "name": "lpc-js",
+  "version": "0.1.0",
+  "description": "FluffOS 2.28 compatible LPC compiler and VM in JavaScript",
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/**/*.test.mjs test/**/**/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
