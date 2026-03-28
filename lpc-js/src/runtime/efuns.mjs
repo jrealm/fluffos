@@ -5,6 +5,7 @@ import { registerMiscEfuns } from './efuns/misc.mjs';
 import { registerTypeEfuns } from './efuns/types.mjs';
 import { registerObjectEfuns } from './efuns/objects.mjs';
 import { registerFileEfuns } from './efuns/files.mjs';
+import { registerRegexEfuns } from './efuns/regex.mjs';
 
 export class EfunRegistry {
   constructor() {
@@ -32,6 +33,7 @@ export class EfunRegistry {
     registerMiscEfuns(this);
     registerTypeEfuns(this);
     registerObjectEfuns(this);
+    registerRegexEfuns(this);
     if (options.mudlibDir) {
       registerFileEfuns(this, options.mudlibDir);
     }

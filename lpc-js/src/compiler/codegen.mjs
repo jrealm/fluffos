@@ -57,6 +57,7 @@ class CodeGen {
     this.inheritedFunctions = new Map();
     this.inheritPrograms = [];
     this.pragmas = {};
+    this.classDefs = new Map();
     this.breakStack = [];
     this.continueStack = [];
   }
@@ -71,6 +72,8 @@ class CodeGen {
         const idx = this.globals.size;
         this.globals.set(decl.name, idx);
         this.emitter.variables.push({ name: decl.name, type: decl.varType });
+      } else if (decl.type === 'ClassDecl') {
+        this.classDefs.set(decl.name, decl.members);
       }
     }
 
@@ -590,6 +593,21 @@ class CodeGen {
         this.emitter.emit((node.fromReverse ? 1 : 0) | (node.toReverse ? 2 : 0));
         break;
 
+      case 'NewClassExpression': {
+        const classIdx = this.emitter.addString(node.className);
+        this.emitter.emitOp(OP.CLASS_NEW);
+        this.emitter.emitShort(classIdx);
+        break;
+      }
+
+      case 'ClassMemberAccess': {
+        this.genExpr(node.object);
+        const memberIdx = this.emitter.addString(node.member);
+        this.emitter.emitOp(OP.CLASS_GET);
+        this.emitter.emitShort(memberIdx);
+        break;
+      }
+
       case 'CatchExpression': {
         this.emitter.emitOp(OP.CATCH);
         const endHole = this.emitter.currentOffset();
@@ -702,6 +720,16 @@ class CodeGen {
   }
 
   genAssign(node) {
+    // Class member assignment: obj->member = value
+    if (node.left.type === 'ClassMemberAccess') {
+      this.genExpr(node.left.object); // [obj]
+      this.genExpr(node.right);       // [obj, value]
+      const memberIdx = this.emitter.addString(node.left.member);
+      this.emitter.emitOp(OP.CLASS_SET); // pops value+obj, sets member, pushes value
+      this.emitter.emitShort(memberIdx);
+      return;
+    }
+
     const av = this.resolveVar(node.left.name);
     if (!av) throw new Error(`Undefined variable: ${node.left.name}`);
 

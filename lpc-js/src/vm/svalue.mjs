@@ -28,6 +28,10 @@ export function mkMapping(value) {
   return { type: T_MAPPING, value };
 }
 
+export function mkClass(value) {
+  return { type: T_CLASS, value };
+}
+
 export function mkFunction(value) {
   return { type: T_FUNCTION, value };
 }

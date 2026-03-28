@@ -154,6 +154,14 @@ export function throwStatement(expression, line) {
   return { type: 'ThrowStatement', expression, line };
 }
 
+export function newClassExpr(className, line) {
+  return { type: 'NewClassExpression', className, line };
+}
+
+export function classMemberSet(object, member, value, line) {
+  return { type: 'ClassMemberSet', object, member, value, line };
+}
+
 export function lambdaExpr(kind, name, partialArgs, body, line) {
   return { type: 'LambdaExpression', kind, name, partialArgs, body, line };
 }

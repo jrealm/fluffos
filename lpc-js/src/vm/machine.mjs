@@ -1,7 +1,7 @@
 import { OP } from './opcodes.mjs';
 import {
-  T_INT, T_STRING, T_FLOAT, T_ARRAY, T_MAPPING, T_FUNCTION,
-  mkInt, mkString, mkFloat, mkArray, mkMapping, mkFunction,
+  T_INT, T_STRING, T_FLOAT, T_ARRAY, T_MAPPING, T_FUNCTION, T_CLASS,
+  mkInt, mkString, mkFloat, mkArray, mkMapping, mkFunction, mkClass,
   SVALUE_ZERO, SVALUE_ONE, isTruthy
 } from './svalue.mjs';
 
@@ -475,6 +475,36 @@ export class Machine {
           if (fp.type !== T_FUNCTION) throw new RuntimeError('Not a function pointer');
           const result = this._callFunctionPtr(fp.value, args);
           this.stack.push(result);
+          break;
+        }
+
+        case OP.CLASS_NEW: {
+          const nameIdx = this.readShort();
+          this.stack.push(mkClass(new Map()));
+          break;
+        }
+
+        case OP.CLASS_GET: {
+          const memberIdx = this.readShort();
+          const memberName = this.currentProgram.strings[memberIdx];
+          const obj = this.stack.pop();
+          if (obj.type === T_CLASS) {
+            this.stack.push(obj.value.get(memberName) ?? SVALUE_ZERO);
+          } else {
+            throw new RuntimeError(`Cannot access member '${memberName}' on non-class`);
+          }
+          break;
+        }
+
+        case OP.CLASS_SET: {
+          const memberIdx = this.readShort();
+          const memberName = this.currentProgram.strings[memberIdx];
+          const value = this.stack.pop();
+          const classObj = this.stack.pop();
+          if (classObj.type === T_CLASS) {
+            classObj.value.set(memberName, value);
+          }
+          this.stack.push(value); // assignment result
           break;
         }
 

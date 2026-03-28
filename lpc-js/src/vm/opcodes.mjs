@@ -92,6 +92,9 @@ export const OP = {
   END_CATCH:    0xA1,
   SWITCH:       0xA2,
   THROW:        0xA3,
+  CLASS_NEW:    0xC0,
+  CLASS_GET:    0xC1,
+  CLASS_SET:    0xC2,
   POP:          0xB0,
   DUP:          0xB1,
 };

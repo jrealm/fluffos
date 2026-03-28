@@ -106,6 +106,7 @@ class Parser {
 
   isType() {
     const t = this.peek().type;
+    if (t === T.CLASS) return true;
     return t === T.TYPE_INT || t === T.TYPE_STRING || t === T.TYPE_FLOAT ||
            t === T.TYPE_OBJECT || t === T.TYPE_MAPPING || t === T.TYPE_MIXED ||
            t === T.TYPE_VOID || t === T.TYPE_BUFFER || t === T.TYPE_FUNCTION ||
@@ -113,6 +114,11 @@ class Parser {
   }
 
   parseTypeName() {
+    if (this.at(T.CLASS)) {
+      this.advance(); // skip 'class'
+      const className = this.expect(T.IDENT).value;
+      return 'class ' + className;
+    }
     const tok = this.advance();
     return tok.value;
   }
@@ -519,11 +525,15 @@ class Parser {
         }
       } else if (this.at(T.ARROW)) {
         this.advance();
-        const method = this.expect(T.IDENT).value;
-        this.expect(T.LPAREN);
-        const args = this.parseArgList();
-        this.expect(T.RPAREN);
-        expr = AST.callOther(expr, method, args, expr.line);
+        const member = this.expect(T.IDENT).value;
+        if (this.at(T.LPAREN)) {
+          this.advance();
+          const args = this.parseArgList();
+          this.expect(T.RPAREN);
+          expr = AST.callOther(expr, member, args, expr.line);
+        } else {
+          expr = AST.classMemberAccess(expr, member, expr.line);
+        }
       } else if (this.at(T.PLUS_PLUS) || this.at(T.MINUS_MINUS)) {
         const op = this.advance();
         expr = AST.updateExpr(op.value, expr, false, op.line);
@@ -592,6 +602,23 @@ class Parser {
       const expr = this.parseExpression();
       this.expect(T.RPAREN);
       return expr;
+    }
+
+    // new(class X) or new(path, args)
+    if (tok.type === T.NEW) {
+      this.advance();
+      this.expect(T.LPAREN);
+      if (this.at(T.CLASS)) {
+        this.advance();
+        const className = this.expect(T.IDENT).value;
+        this.expect(T.RPAREN);
+        return AST.newClassExpr(className, tok.line);
+      }
+      const pathExpr = this.parseExpression();
+      const args = [];
+      while (this.match(T.COMMA)) args.push(this.parseExpression());
+      this.expect(T.RPAREN);
+      return AST.callExpr('clone_object', [pathExpr, ...args], tok.line);
     }
 
     // catch(expr)
