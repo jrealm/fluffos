@@ -62,9 +62,9 @@ yarn test     # 執行所有測試
 | `connection.mjs` | 玩家連線（行緩衝、`input_to`） |
 | `telnet.mjs` | Telnet IAC 協議解析器 |
 
-## 已實作的 Efun (~95 個)
+## 已實作的 Efun (~130 個)
 
-**字串：** `capitalize`、`lower_case`、`upper_case`、`strlen`、`implode`、`explode`、`replace_string`、`trim`、`strsrch`、`sscanf`、`sprintf`
+**字串：** `capitalize`、`lower_case`、`upper_case`、`strlen`、`implode`、`explode`、`replace_string`、`trim`、`strsrch`、`sscanf`、`sprintf`（完整相容 FluffOS，支援 `%O`、column/table mode、所有旗標）
 
 **陣列：** `sizeof`、`member_array`、`sort_array`、`unique_array`、`allocate`、`filter_array`、`map_array`
 
@@ -72,9 +72,11 @@ yarn test     # 執行所有測試
 
 **型別謂詞：** `typeof`、`to_int`、`to_string`、`to_float`、`intp`、`stringp`、`floatp`、`arrayp`、`mapp`、`objectp`、`functionp`、`undefinedp`、`clonep`、`userp`、`living`
 
-**物件：** `this_object`、`clone_object`、`destruct`、`find_object`、`move_object`、`environment`、`object_name`、`base_name`、`file_name`、`all_inventory`、`deep_inventory`、`present`、`load_object`、`children`、`find_living`、`find_player`、`inherits`、`users`
+**物件：** `this_object`、`clone_object`、`destruct`、`find_object`、`move_object`、`environment`、`object_name`、`base_name`、`file_name`、`all_inventory`、`deep_inventory`、`present`、`load_object`、`children`、`find_living`、`find_player`、`inherits`、`users`、`objects`、`livings`、`function_exists`、`first_inventory`、`next_inventory`
 
-**互動：** `write`、`tell_object`、`message`、`input_to`、`interactive`、`add_action`、`notify_fail`、`this_player`、`query_verb`、`enable_commands`、`disable_commands`、`command`
+**互動：** `write`、`tell_object`、`message`、`input_to`、`interactive`、`add_action`、`notify_fail`、`this_player`、`query_verb`、`enable_commands`、`disable_commands`、`command`、`say`、`tell_room`、`shout`、`receive`、`get_char`
+
+**連線查詢：** `query_ip_number`、`query_ip_name`、`query_idle`
 
 **計時：** `call_out`、`remove_call_out`、`set_heart_beat`、`query_heart_beat`
 
@@ -82,9 +84,9 @@ yarn test     # 執行所有測試
 
 **函數指標：** `evaluate`、`functionp`
 
-**檔案 I/O：** `read_file`、`write_file`、`file_size`、`mkdir`、`rm`、`get_dir`、`stat`、`log_file`
+**檔案 I/O：** `read_file`、`write_file`、`file_size`、`mkdir`、`rm`、`get_dir`、`stat`、`log_file`、`read_bytes`、`write_bytes`、`cp`、`rename`
 
-**持久化：** `save_object`、`restore_object`
+**持久化：** `save_object`、`restore_object`、`save_variable`、`restore_variable`
 
 **正規表達式：** `regexp`、`reg_assoc`、`pcre_match`
 
@@ -92,7 +94,13 @@ yarn test     # 執行所有測試
 
 **雜湊/加密：** `hash`、`crypt`
 
-**時間：** `random`、`time`、`localtime`
+**時間：** `random`、`time`、`localtime`、`ctime`、`uptime`
+
+**系統：** `shutdown`、`call_out_info`、`memory_info`、`mud_status`、`query_host_name`、`origin`、`call_stack`、`commands`
+
+**Bit 操作：** `set_bit`、`clear_bit`、`test_bit`、`next_bit`
+
+**監控：** `snoop`、`query_snoop`、`query_snooping`
 
 **資料庫：** `db_connect`、`db_exec`、`db_close`、`db_fetch`
 
