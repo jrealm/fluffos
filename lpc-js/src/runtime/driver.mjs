@@ -76,7 +76,11 @@ export class Driver {
     });
 
     this.callOuts.onFire = (func, obj, args) => {
-      apply(func, obj, args);
+      if (typeof func === 'object' && func.type === T_FUNCTION) {
+        this.vm._callFunctionPtr(func.value, args);
+      } else {
+        apply(func, obj, args);
+      }
     };
 
     // Set UIDs on newly created objects
@@ -162,11 +166,15 @@ export class Driver {
     });
 
     this.efuns.register('call_out', (args) => {
-      const func = args[0].value;
+      const func = args[0]; // Can be string or function pointer
       const delay = args[1].value;
       const extraArgs = args.slice(2);
       if (driver.currentObject) {
-        driver.callOuts.add(func, driver.currentObject, delay, extraArgs);
+        if (func.type === T_FUNCTION) {
+          driver.callOuts.add(func, driver.currentObject, delay, extraArgs);
+        } else {
+          driver.callOuts.add(func.value, driver.currentObject, delay, extraArgs);
+        }
       }
       return SVALUE_ZERO;
     });
@@ -198,6 +206,16 @@ export class Driver {
     this.efuns.register('find_object', (args) => {
       const obj = driver.objects.find(args[0].value);
       if (obj) return { type: T_OBJECT, value: obj };
+      return SVALUE_ZERO;
+    });
+
+    // move: alias for move_object (used by many mudlibs as this_object()->move(dest))
+    this.efuns.register('move', (args) => {
+      const dest = args[0].type === T_OBJECT ? args[0].value
+        : (args[0].type === T_STRING ? driver.objects.load(args[0].value.endsWith('.c') ? args[0].value : args[0].value + '.c') : null);
+      if (driver.currentObject && dest) {
+        driver.currentObject.moveTo(dest);
+      }
       return SVALUE_ZERO;
     });
 
@@ -234,6 +252,14 @@ export class Driver {
 
     this.efuns.register('query_verb', () => {
       return driver._currentVerb ? mkString(driver._currentVerb) : SVALUE_ZERO;
+    });
+
+    this.efuns.register('query_notify_fail', () => {
+      if (driver._notifyFailMsg) {
+        if (driver._notifyFailMsg.type === T_STRING) return driver._notifyFailMsg;
+        if (driver._notifyFailMsg.type === T_FUNCTION) return driver._notifyFailMsg;
+      }
+      return SVALUE_ZERO;
     });
 
     this.efuns.register('enable_commands', () => {
@@ -1007,7 +1033,12 @@ export class Driver {
     }, searchList);
 
     if (!handled && this._notifyFailMsg) {
-      conn.send(this._notifyFailMsg);
+      const nf = this._notifyFailMsg;
+      if (nf.type === T_FUNCTION) {
+        this.vm._callFunctionPtr(nf.value, []);
+      } else {
+        conn.send(nf.type === T_STRING ? nf.value : String(nf.value));
+      }
     } else if (!handled) {
       conn.send('What?\n');
     }

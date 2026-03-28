@@ -1,4 +1,4 @@
-import { mkInt, T_INT, T_STRING, T_FLOAT, T_ARRAY, T_MAPPING, T_OBJECT, T_FUNCTION, T_BUFFER } from '../../vm/svalue.mjs';
+import { mkInt, T_INT, T_STRING, T_FLOAT, T_ARRAY, T_MAPPING, T_OBJECT, T_FUNCTION, T_BUFFER, T_CLASS } from '../../vm/svalue.mjs';
 import { O_CLONE } from '../object.mjs';
 
 export function registerTypeEfuns(reg) {
@@ -30,4 +30,7 @@ export function registerTypeEfuns(reg) {
   });
 
   reg.register('bufferp', (args) => mkInt(args[0].type === T_BUFFER ? 1 : 0));
+
+  reg.register('pointerp', (args) => mkInt(args[0].type === T_ARRAY ? 1 : 0));
+  reg.register('classp', (args) => mkInt(args[0].type === T_CLASS ? 1 : 0));
 }

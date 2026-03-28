@@ -22,9 +22,40 @@ export function registerInteractiveEfuns(reg, driver) {
   reg.register('message', (args) => {
     const msg = args[1].type === T_STRING ? args[1].value : String(args[1].value);
     const targets = args[2];
-    if (targets.type === T_OBJECT) {
-      const obj = targets.value;
+    const exclude = args[3];
+
+    const excludeSet = new Set();
+    if (exclude) {
+      if (exclude.type === T_ARRAY) {
+        for (const sv of exclude.value) {
+          if (sv.type === T_OBJECT) excludeSet.add(sv.value);
+        }
+      } else if (exclude.type === T_OBJECT) {
+        excludeSet.add(exclude.value);
+      }
+    }
+
+    function sendTo(obj) {
+      if (excludeSet.has(obj)) return;
       if (obj.interactive) obj.interactive.send(msg);
+      // Also call receive_message on the object
+      driver.apply('receive_message', obj, [args[0], args[1]]);
+    }
+
+    if (targets.type === T_OBJECT) {
+      sendTo(targets.value);
+    } else if (targets.type === T_ARRAY) {
+      for (const sv of targets.value) {
+        if (sv.type === T_OBJECT) sendTo(sv.value);
+      }
+    } else if (targets.type === T_STRING) {
+      // String target — look up object by name
+      const obj = driver.objects.find(targets.value) ?? driver.objects.find(targets.value + '.c');
+      if (obj) {
+        for (const inv of obj.inventory) {
+          sendTo(inv);
+        }
+      }
     }
     return SVALUE_ZERO;
   });
@@ -57,9 +88,8 @@ export function registerInteractiveEfuns(reg, driver) {
   });
 
   reg.register('notify_fail', (args) => {
-    if (driver.currentObject && driver.currentObject.interactive) {
-      driver._notifyFailMsg = args[0].value;
-    }
+    // Supports both string and function pointer
+    driver._notifyFailMsg = args[0];
     return SVALUE_ZERO;
   });
 

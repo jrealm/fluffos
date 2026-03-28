@@ -849,7 +849,13 @@ class CodeGen {
 }
 
 export function compile(source, filename = '<input>', compileOptions = {}) {
-  const ppResult = preprocess(source, compileOptions);
+  const dir = filename.includes('/') ? filename.slice(0, filename.lastIndexOf('/') + 1) : '/';
+  const fileDefines = {
+    ...(compileOptions.defines ?? {}),
+    __FILE__: `"${filename}"`,
+    __DIR__: `"${dir}"`,
+  };
+  const ppResult = preprocess(source, { ...compileOptions, defines: fileDefines });
   const ast = parse(ppResult.source, filename);
   const gen = new CodeGen(ast);
   gen.pragmas = ppResult.pragmas;
@@ -866,7 +872,16 @@ export function compileWithInherit(filename, files, compileOptions = {}) {
     // Try with and without .c extension
     const source = files[fname] ?? files[fname + '.c'] ?? files[fname.replace(/\.c$/, '')];
     if (source === undefined) throw new Error(`File not found: ${fname}`);
-    const ppResult = preprocess(source, compileOptions);
+    // Inject __FILE__, __DIR__, __DIR_DIR__ built-in macros
+    const dir = fname.includes('/') ? fname.slice(0, fname.lastIndexOf('/') + 1) : '/';
+    const dirDir = dir.length > 1 ? dir.slice(0, dir.slice(0, -1).lastIndexOf('/') + 1) : '/';
+    const fileDefines = {
+      ...(compileOptions.defines ?? {}),
+      __FILE__: `"${fname}"`,
+      __DIR__: `"${dir}"`,
+      __DIR_DIR__: `"${dirDir}"`,
+    };
+    const ppResult = preprocess(source, { ...compileOptions, defines: fileDefines });
     const ast = parse(ppResult.source, fname);
 
     // Separate inherits from other declarations

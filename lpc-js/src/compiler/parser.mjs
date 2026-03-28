@@ -648,6 +648,16 @@ class Parser {
 
     if (tok.type === T.IDENT) {
       this.advance();
+      // efun::func() — direct efun call bypassing simul_efun
+      if (tok.value === 'efun' && this.at(T.COLON_COLON)) {
+        this.advance(); // skip ::
+        const funcName = this.expect(T.IDENT).value;
+        this.expect(T.LPAREN);
+        const args = this.parseArgList();
+        this.expect(T.RPAREN);
+        // Emit as regular efun call (codegen will use CALL_EFUN)
+        return AST.callExpr(funcName, args, tok.line);
+      }
       if (this.at(T.LPAREN)) {
         this.advance();
         const args = this.parseArgList();

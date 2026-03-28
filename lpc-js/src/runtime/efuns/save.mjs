@@ -115,21 +115,40 @@ function findTopLevelColon(str) {
 export function registerSaveEfuns(reg, driver) {
   reg.register('save_object', (args) => {
     if (!driver.currentObject) return SVALUE_ZERO;
+    let savePath;
+    if (args.length > 0 && args[0].type === T_STRING) {
+      savePath = args[0].value;
+    } else {
+      // No argument: call query_save_file() on the object
+      const result = driver.apply('query_save_file', driver.currentObject, []);
+      if (!result || result.type !== T_STRING) return SVALUE_ZERO;
+      savePath = result.value;
+    }
+    if (!savePath.endsWith('.o')) savePath += '.o';
     const text = serializeObject(driver.currentObject);
     const writeFile = driver.efuns.registry.get('write_file');
     const rm = driver.efuns.registry.get('rm');
     if (writeFile) {
-      try { if (rm) rm([mkString(args[0].value)]); } catch {}
-      writeFile([mkString(args[0].value), mkString(text)]);
+      try { if (rm) rm([mkString(savePath)]); } catch {}
+      writeFile([mkString(savePath), mkString(text)]);
     }
     return mkInt(1);
   });
 
   reg.register('restore_object', (args) => {
     if (!driver.currentObject) return SVALUE_ZERO;
+    let restorePath;
+    if (args.length > 0 && args[0].type === T_STRING) {
+      restorePath = args[0].value;
+    } else {
+      const result = driver.apply('query_save_file', driver.currentObject, []);
+      if (!result || result.type !== T_STRING) return SVALUE_ZERO;
+      restorePath = result.value;
+    }
+    if (!restorePath.endsWith('.o')) restorePath += '.o';
     const readFile = driver.efuns.registry.get('read_file');
     if (readFile) {
-      const content = readFile([mkString(args[0].value)]);
+      const content = readFile([mkString(restorePath)]);
       if (content.type === T_STRING) {
         deserializeObject(driver.currentObject, content.value);
         return mkInt(1);
