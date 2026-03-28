@@ -742,6 +742,12 @@ class Parser {
       return this.parseLambda(tok.line);
     }
 
+    // Allow 'status' as identifier (it's also a type keyword but used as variable name in many mudlibs)
+    if (tok.type === T.TYPE_STATUS) {
+      this.advance();
+      return AST.identifier(tok.value, tok.line);
+    }
+
     if (tok.type === T.IDENT) {
       this.advance();
       // efun::func() — direct efun call bypassing simul_efun
