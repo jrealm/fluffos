@@ -40,6 +40,15 @@ class Parser {
     return tok;
   }
 
+  // Expect identifier or type keyword used as name (LPC allows type keywords as var/param names)
+  expectName() {
+    const tok = this.peek();
+    if (tok.type === T.IDENT || tok.type === T.TYPE_STATUS) {
+      return this.advance();
+    }
+    return this.expect(T.IDENT); // will throw
+  }
+
   match(type) {
     if (this.at(type)) { this.advance(); return true; }
     return false;
@@ -73,7 +82,7 @@ class Parser {
     if (this.match(T.STAR)) {
       typeName = typeName + '*';
     }
-    const name = this.expect(T.IDENT).value;
+    const name = this.expectName().value;
     if (this.at(T.LPAREN)) {
       return this.parseFunctionDecl(typeName, name, flags);
     } else {
@@ -191,7 +200,7 @@ class Parser {
       while (this.match(T.COMMA)) {
         let vType = typeName;
         if (this.match(T.STAR)) vType += '*';
-        const vName = this.expect(T.IDENT).value;
+        const vName = this.expectName().value;
         let vInit = null;
         if (this.match(T.EQ)) vInit = this.parseExpression();
         decls.push(AST.varDecl(vType, vName, vInit, flags, line));
@@ -240,7 +249,17 @@ class Parser {
     }
 
     if (this.isType()) {
-      return this.parseLocalVarDecl();
+      // Lookahead: type keyword followed by IDENT or * means variable declaration.
+      // type keyword followed by = or ( means it's used as variable name (expression).
+      const next = this.tokens[this.pos + 1];
+      if (next && (next.type === T.IDENT || next.type === T.STAR ||
+                   next.type === T.TYPE_STATUS || next.type === T.TYPE_INT ||
+                   next.type === T.TYPE_STRING || next.type === T.TYPE_FLOAT ||
+                   next.type === T.TYPE_OBJECT || next.type === T.TYPE_MAPPING ||
+                   next.type === T.TYPE_MIXED || next.type === T.TYPE_FUNCTION)) {
+        return this.parseLocalVarDecl();
+      }
+      // Otherwise treat as expression (variable name)
     }
 
     const expr = this.parseExpression();
@@ -252,7 +271,7 @@ class Parser {
     const line = this.peek().line;
     let typeName = this.parseTypeName();
     if (this.match(T.STAR)) typeName += '*';
-    const name = this.expect(T.IDENT).value;
+    const name = this.expectName().value;
     let init = null;
     if (this.match(T.EQ)) {
       init = this.parseExpression();
@@ -264,7 +283,7 @@ class Parser {
       while (this.match(T.COMMA)) {
         let vType = typeName;
         if (this.match(T.STAR)) vType += '*';
-        const vName = this.expect(T.IDENT).value;
+        const vName = this.expectName().value;
         let vInit = null;
         if (this.match(T.EQ)) {
           vInit = this.parseExpression();
@@ -333,14 +352,14 @@ class Parser {
       if (this.isType()) {
         let typeName = this.parseTypeName();
         if (this.match(T.STAR)) typeName += '*';
-        const name = this.expect(T.IDENT).value;
+        const name = this.expectName().value;
         let varInit = null;
         if (this.match(T.EQ)) varInit = this.parseExpression();
         // Support: for (int i = 0, j = 0; ...)
         if (this.at(T.COMMA)) {
           const decls = [AST.varDecl(typeName, name, varInit, 0, line)];
           while (this.match(T.COMMA)) {
-            const vName = this.expect(T.IDENT).value;
+            const vName = this.expectName().value;
             let vInit = null;
             if (this.match(T.EQ)) vInit = this.parseExpression();
             decls.push(AST.varDecl(typeName, vName, vInit, 0, line));
@@ -391,13 +410,13 @@ class Parser {
       // With types: foreach (type var in expr)
       let typeName = this.parseTypeName();
       if (this.match(T.STAR)) typeName += '*';
-      let varName = this.expect(T.IDENT).value;
+      let varName = this.expectName().value;
       vars.push({ typeName, name: varName });
 
       if (this.match(T.COMMA)) {
         let typeName2 = this.parseTypeName();
         if (this.match(T.STAR)) typeName2 += '*';
-        let varName2 = this.expect(T.IDENT).value;
+        let varName2 = this.expectName().value;
         vars.push({ typeName: typeName2, name: varName2 });
       }
     }
