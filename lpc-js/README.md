@@ -62,7 +62,7 @@ yarn test     # 執行所有測試
 | `connection.mjs` | 玩家連線（行緩衝、`input_to`） |
 | `telnet.mjs` | Telnet IAC 協議解析器 |
 
-## 已實作的 Efun (~130 個)
+## 已實作的 Efun (~145 個)
 
 **字串：** `capitalize`、`lower_case`、`upper_case`、`strlen`、`implode`、`explode`、`replace_string`、`trim`、`strsrch`、`sscanf`、`sprintf`（完整相容 FluffOS，支援 `%O`、column/table mode、所有旗標）
 
@@ -102,6 +102,12 @@ yarn test     # 執行所有測試
 
 **監控：** `snoop`、`query_snoop`、`query_snooping`
 
+**Socket API：** `socket_create`、`socket_bind`、`socket_listen`、`socket_accept`、`socket_connect`、`socket_write`、`socket_close`、`socket_address`、`socket_error`
+
+**WebSocket：** `websocket`
+
+**MUD 協議：** `has_gmcp`、`send_gmcp`、`has_mxp`、`act_mxp`
+
 **資料庫：** `db_connect`、`db_exec`、`db_close`、`db_fetch`
 
 ## 已實作的語言特性
@@ -116,6 +122,10 @@ yarn test     # 執行所有測試
 - 多重繼承
 - Shadow 物件攔截
 - replace_program
+- WebSocket 連線（與 Telnet 共用 Connection 抽象，LPC 層無感）
+- GMCP 協議（Telnet subnegotiation + WebSocket JSON frame）
+- MXP 協議（基本啟用，mudlib 自行嵌入標記）
+- LPC Socket API（TCP STREAM、UDP DATAGRAM、MUD mode）
 
 ## 使用範例
 
