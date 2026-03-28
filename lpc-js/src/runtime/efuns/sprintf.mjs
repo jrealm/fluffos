@@ -126,11 +126,11 @@ function formatValue(spec, sv) {
   switch (spec.specifier) {
     case 's':
       str = sv.type === T_STRING ? sv.value : String(sv.value ?? '');
+      if (spec.columnMode && spec.width > 0) return formatColumn(str, spec.width);
+      if (spec.tableMode && spec.width > 0) return formatTable(str, spec.width, spec.precision >= 0 ? spec.precision : -1);
       if (spec.precision >= 0 && str.length > spec.precision) {
         str = str.slice(0, spec.precision);
       }
-      if (spec.columnMode && spec.width > 0) return formatColumn(str, spec.width);
-      if (spec.tableMode && spec.width > 0) return formatTable(str, spec.width, spec.precision >= 0 ? spec.precision : -1);
       break;
 
     case 'd': case 'i': {
