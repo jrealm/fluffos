@@ -151,10 +151,200 @@ describe('VM — collections', () => {
   it('mapping literal', () => {
     const result = run('mixed f() { return ([ "a": 1, "b": 2 ]); }');
     assert.equal(result.type, T_MAPPING);
-    assert.equal(result.value.get('a').value, 1);
+    assert.equal(result.value.get('1:a').value.value, 1); // key = T_STRING(1):a
   });
 
   it('array index', () => {
     assert.equal(run('int f() { mixed arr = ({ 10, 20, 30 }); return arr[1]; }').value, 20);
+  });
+});
+
+describe('VM — short-circuit logical operators', () => {
+  it('&& short-circuits on falsy left', () => {
+    const result = run('int f() { int x = 0; if (0 && (x = 5)) {} return x; }');
+    assert.equal(result.value, 0);
+  });
+
+  it('&& evaluates right when left is truthy', () => {
+    const result = run('int f() { int x = 0; if (1 && (x = 5)) {} return x; }');
+    assert.equal(result.value, 5);
+  });
+
+  it('|| short-circuits on truthy left', () => {
+    const result = run('int f() { int x = 0; if (1 || (x = 5)) {} return x; }');
+    assert.equal(result.value, 0);
+  });
+
+  it('|| evaluates right when left is falsy', () => {
+    const result = run('int f() { int x = 0; if (0 || (x = 5)) {} return x; }');
+    assert.equal(result.value, 5);
+  });
+
+  it('&& returns left value when falsy', () => {
+    assert.equal(run('int f() { return 0 && 42; }').value, 0);
+  });
+
+  it('&& returns right value when left is truthy', () => {
+    assert.equal(run('int f() { return 3 && 42; }').value, 42);
+  });
+
+  it('|| returns left value when truthy', () => {
+    assert.equal(run('int f() { return 3 || 42; }').value, 3);
+  });
+
+  it('|| returns right value when left is falsy', () => {
+    assert.equal(run('int f() { return 0 || 42; }').value, 42);
+  });
+});
+
+describe('VM — continue in for loop', () => {
+  it('continue skips to update in for loop', () => {
+    const result = run(`
+      int f() {
+        int sum = 0;
+        for (int i = 0; i < 10; i += 1) {
+          if (i % 2 == 0) { continue; }
+          sum += i;
+        }
+        return sum;
+      }
+    `);
+    assert.equal(result.value, 25);
+  });
+
+  it('continue in while loop still works', () => {
+    const result = run(`
+      int f() {
+        int i = 0;
+        int sum = 0;
+        while (i < 10) {
+          i += 1;
+          if (i % 2 == 0) { continue; }
+          sum += i;
+        }
+        return sum;
+      }
+    `);
+    assert.equal(result.value, 25);
+  });
+});
+
+describe('VM — catch restores program context', () => {
+  it('catch inside local function call restores state', () => {
+    const result = run(`
+      void thrower() { throw("oops"); }
+      mixed f() { return catch(thrower()); }
+    `);
+    assert.equal(result.type, T_STRING);
+    assert.equal(result.value, 'oops');
+  });
+
+  it('catch preserves locals after cross-function throw', () => {
+    const result = run(`
+      int inner() { throw("fail"); return 0; }
+      int f() {
+        int x = 10;
+        mixed dummy;
+        dummy = catch(inner());
+        return x;
+      }
+    `);
+    assert.equal(result.value, 10);
+  });
+});
+
+describe('VM — switch statement', () => {
+  it('switch with break does not leak stack', () => {
+    const result = run(`
+      int f() {
+        int x = 0;
+        switch (1) {
+          case 1: x = 10; break;
+          case 2: x = 20; break;
+        }
+        return x;
+      }
+    `);
+    assert.equal(result.value, 10);
+  });
+
+  it('switch with default', () => {
+    const result = run(`
+      int f() {
+        int x = 0;
+        switch (99) {
+          case 1: x = 10; break;
+          default: x = 42; break;
+        }
+        return x;
+      }
+    `);
+    assert.equal(result.value, 42);
+  });
+
+  it('switch fall-through', () => {
+    const result = run(`
+      int f() {
+        int x = 0;
+        switch (1) {
+          case 1: x += 10;
+          case 2: x += 20; break;
+        }
+        return x;
+      }
+    `);
+    assert.equal(result.value, 30);
+  });
+
+  it('switch followed by more code', () => {
+    const result = run(`
+      int f() {
+        int a = 0;
+        int b = 0;
+        switch (2) {
+          case 1: a = 1; break;
+          case 2: a = 2; break;
+        }
+        b = a + 100;
+        return b;
+      }
+    `);
+    assert.equal(result.value, 102);
+  });
+
+  it('multiple switches do not corrupt stack', () => {
+    const result = run(`
+      int f() {
+        int a = 0;
+        switch (1) { case 1: a = 10; break; }
+        switch (2) { case 2: a += 20; break; }
+        switch (3) { case 3: a += 30; break; }
+        return a;
+      }
+    `);
+    assert.equal(result.value, 60);
+  });
+});
+
+describe('VM — mapping type-safe keys', () => {
+  it('int and float keys are distinct', () => {
+    const result = run(`
+      mixed f() {
+        mapping m = ([ 1: "int", 1.0: "float" ]);
+        return m;
+      }
+    `);
+    assert.equal(result.type, T_MAPPING);
+    assert.equal(result.value.size, 2);
+  });
+
+  it('int key lookup works', () => {
+    const result = run('mixed f() { mapping m = ([ 1: "one", 2: "two" ]); return m[1]; }');
+    assert.equal(result.value, 'one');
+  });
+
+  it('string key lookup works', () => {
+    const result = run('mixed f() { mapping m = ([ "a": 10, "b": 20 ]); return m["b"]; }');
+    assert.equal(result.value, 20);
   });
 });

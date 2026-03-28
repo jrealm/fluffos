@@ -273,8 +273,9 @@ function svalueToString(sv, indent) {
     case T_MAPPING: {
       if (sv.value.size === 0) return '([ ])';
       const entries = [];
-      for (const [k, v] of sv.value) {
-        entries.push(`${pad}  "${k}" : ${svalueToString(v, indent + 2)},\n`);
+      for (const [, entry] of sv.value) {
+        const kStr = svalueToString(entry.key, indent + 2);
+        entries.push(`${pad}  ${kStr} : ${svalueToString(entry.value, indent + 2)},\n`);
       }
       return `([ /* sizeof() == ${sv.value.size} */\n${entries.join('')}${pad}])`;
     }

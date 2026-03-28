@@ -1,7 +1,13 @@
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { EfunRegistry } from '../../src/runtime/efuns.mjs';
-import { mkInt, mkString, mkFloat, mkArray, mkMapping, T_INT, T_STRING, T_ARRAY } from '../../src/vm/svalue.mjs';
+import { mkInt, mkString, mkFloat, mkArray, mkMapping, mappingKey, T_INT, T_STRING, T_ARRAY } from '../../src/vm/svalue.mjs';
+
+function mkMap(pairs) {
+  const m = new Map();
+  for (const [k, v] of pairs) { m.set(mappingKey(k), { key: k, value: v }); }
+  return mkMapping(m);
+}
 
 describe('EfunRegistry', () => {
   let reg;
@@ -51,8 +57,8 @@ describe('array efuns', () => {
 
   it('sizeof on array', () => { assert.equal(reg.call('sizeof', [mkArray([mkInt(1), mkInt(2)])]).value, 2); });
   it('sizeof on mapping', () => {
-    const m = new Map(); m.set('a', mkInt(1));
-    assert.equal(reg.call('sizeof', [mkMapping(m)]).value, 1);
+    const mv = mkMap([[mkString('a'), mkInt(1)]]);
+    assert.equal(reg.call('sizeof', [mv]).value, 1);
   });
   it('sizeof on string', () => { assert.equal(reg.call('sizeof', [mkString('abc')]).value, 3); });
 
@@ -80,18 +86,17 @@ describe('mapping efuns', () => {
   beforeEach(() => { reg = new EfunRegistry(); reg.loadDefaults(); });
 
   it('keys', () => {
-    const m = new Map(); m.set('a', mkInt(1)); m.set('b', mkInt(2));
-    assert.equal(reg.call('keys', [mkMapping(m)]).value.length, 2);
+    const mv = mkMap([[mkString('a'), mkInt(1)], [mkString('b'), mkInt(2)]]);
+    assert.equal(reg.call('keys', [mv]).value.length, 2);
   });
 
   it('values', () => {
-    const m = new Map(); m.set('a', mkInt(1)); m.set('b', mkInt(2));
-    assert.equal(reg.call('values', [mkMapping(m)]).value.length, 2);
+    const mv = mkMap([[mkString('a'), mkInt(1)], [mkString('b'), mkInt(2)]]);
+    assert.equal(reg.call('values', [mv]).value.length, 2);
   });
 
   it('map_delete', () => {
-    const m = new Map(); m.set('a', mkInt(1)); m.set('b', mkInt(2));
-    const mv = mkMapping(m);
+    const mv = mkMap([[mkString('a'), mkInt(1)], [mkString('b'), mkInt(2)]]);
     reg.call('map_delete', [mv, mkString('a')]);
     assert.equal(mv.value.size, 1);
   });

@@ -39,6 +39,11 @@ export function mkFunction(value) {
 export const SVALUE_ZERO = Object.freeze(mkInt(0));
 export const SVALUE_ONE = Object.freeze(mkInt(1));
 
+// Composite key for mappings to distinguish int 1 from float 1.0
+export function mappingKey(sv) {
+  return `${sv.type}:${sv.value}`;
+}
+
 export function isTruthy(sv) {
   switch (sv.type) {
     case T_INT:

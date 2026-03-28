@@ -1,7 +1,7 @@
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { EfunRegistry } from '../../src/runtime/efuns.mjs';
-import { mkInt, mkString, mkFloat, mkArray, mkMapping, T_INT, T_STRING, T_ARRAY } from '../../src/vm/svalue.mjs';
+import { mkInt, mkString, mkFloat, mkArray, mkMapping, mappingKey, T_INT, T_STRING, T_ARRAY } from '../../src/vm/svalue.mjs';
 
 describe('sprintf', () => {
   let reg;
@@ -178,7 +178,8 @@ describe('sprintf', () => {
     });
 
     it('prints mapping with entries', () => {
-      const m = new Map(); m.set('key', mkInt(42));
+      const key = mkString('key');
+      const m = new Map(); m.set(mappingKey(key), { key, value: mkInt(42) });
       const result = reg.call('sprintf', [mkString('%O'), mkMapping(m)]).value;
       assert.ok(result.includes('sizeof() == 1'));
       assert.ok(result.includes('"key"'));

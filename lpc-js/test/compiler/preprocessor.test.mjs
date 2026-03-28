@@ -138,3 +138,42 @@ describe('preprocessor — initial defines', () => {
     assert.ok(result.source.includes('int x = 99;'));
   });
 });
+
+describe('preprocessor — #if expression evaluator', () => {
+  it('evaluates #if 1', () => {
+    const result = preprocess('#if 1\nyes\n#endif');
+    assert.ok(result.source.includes('yes'));
+  });
+
+  it('evaluates #if 0', () => {
+    const result = preprocess('#if 0\nno\n#endif');
+    assert.ok(!result.source.includes('no'));
+  });
+
+  it('evaluates #if with arithmetic comparison', () => {
+    const result = preprocess('#define X 5\n#if X > 3\nyes\n#endif');
+    assert.ok(result.source.includes('yes'));
+  });
+
+  it('evaluates #if with && and ||', () => {
+    const result = preprocess('#if 1 && 0\nno\n#endif\n#if 1 || 0\nyes\n#endif');
+    assert.ok(!result.source.includes('no'));
+    assert.ok(result.source.includes('yes'));
+  });
+
+  it('evaluates #if with negation', () => {
+    const result = preprocess('#if !0\nyes\n#endif');
+    assert.ok(result.source.includes('yes'));
+  });
+
+  it('evaluates #if with parentheses', () => {
+    const result = preprocess('#if (1 + 2) == 3\nyes\n#endif');
+    assert.ok(result.source.includes('yes'));
+  });
+
+  it('does not execute arbitrary code via Function()', () => {
+    // Should safely evaluate to false, not execute code
+    const result = preprocess('#if __proto__\nno\n#endif');
+    assert.ok(!result.source.includes('no'));
+  });
+});

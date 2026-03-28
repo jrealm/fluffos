@@ -22,6 +22,9 @@ export class LpcObject {
     this.uid = '';
     this.euid = '';
     this.replaceProgramPending = null;
+    this.heartBeatErrors = 0;
+    this.nextReset = 0;
+    this.lastAccess = Date.now();
   }
 
   clone(cloneNumber) {

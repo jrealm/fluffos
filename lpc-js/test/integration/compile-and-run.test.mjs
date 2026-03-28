@@ -108,7 +108,7 @@ describe('integration — compile and run LPC programs', () => {
         return ([ "one": 1, "two": 2, "three": 3 ]);
       }
     `, 'make_map');
-    assert.equal(result.value.get('two').value, 2);
+    assert.equal(result.value.get('1:two').value.value, 2);
   });
 
   it('eval cost limit prevents infinite loops', () => {

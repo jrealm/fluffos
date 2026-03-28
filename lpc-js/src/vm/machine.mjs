@@ -1,8 +1,8 @@
 import { OP } from './opcodes.mjs';
 import {
-  T_INT, T_STRING, T_FLOAT, T_ARRAY, T_MAPPING, T_FUNCTION, T_CLASS,
+  T_INT, T_STRING, T_FLOAT, T_ARRAY, T_MAPPING, T_FUNCTION, T_CLASS, T_BUFFER,
   mkInt, mkString, mkFloat, mkArray, mkMapping, mkFunction, mkClass,
-  SVALUE_ZERO, SVALUE_ONE, isTruthy
+  SVALUE_ZERO, SVALUE_ONE, isTruthy, mappingKey
 } from './svalue.mjs';
 
 export class RuntimeError extends Error {
@@ -24,8 +24,11 @@ export class Machine {
     this.evalCost = 0;
     this.efunHandler = null;
     this.callOtherHandler = null;
+    this.simulEfunHandler = null;
     this._catchStack = [];
     this._foreachStack = [];
+    this._currentFunctionName = null;
+    this._currentObject = null;
   }
 
   execute(program, functionName, args = []) {
@@ -43,7 +46,12 @@ export class Machine {
       pc: this.pc,
       locals: this.locals,
       program: this.currentProgram,
+      functionName: this._currentFunctionName,
+      fileName: this.currentProgram?.filename ?? '<unknown>',
+      object: this._currentObject,
     });
+
+    this._currentFunctionName = fn.name;
 
     const localCount = fn.numArgs + fn.numLocals;
     this.locals = new Array(localCount).fill(SVALUE_ZERO);
@@ -57,8 +65,31 @@ export class Machine {
     const frame = this.callStack.pop();
     this.pc = frame.pc;
     this.locals = frame.locals;
+    this._currentFunctionName = frame.functionName;
 
     return result;
+  }
+
+  collectTraceback(errorMessage) {
+    const frames = [];
+    if (this.currentProgram) {
+      frames.push({
+        function: this._currentFunctionName ?? '<unknown>',
+        file: this.currentProgram.filename ?? '<unknown>',
+        line: this.currentProgram.getLine ? this.currentProgram.getLine(this.pc) : 0,
+        object: this._currentObject?.filename ?? '<none>',
+      });
+    }
+    for (let i = this.callStack.length - 1; i >= 0; i--) {
+      const frame = this.callStack[i];
+      frames.push({
+        function: frame.functionName ?? '<unknown>',
+        file: frame.fileName ?? '<unknown>',
+        line: frame.program?.getLine ? frame.program.getLine(frame.pc) : 0,
+        object: frame.object?.filename ?? '<none>',
+      });
+    }
+    return { message: errorMessage, frames };
   }
 
   run() {
@@ -293,6 +324,23 @@ export class Machine {
           break;
         }
 
+        case OP.CALL_SIMUL: {
+          const nameIdx2 = this.readShort();
+          const argCount2 = bc[this.pc++];
+          const args2 = [];
+          for (let i = 0; i < argCount2; i++) {
+            args2.unshift(this.stack.pop());
+          }
+          const name2 = this.currentProgram.strings[nameIdx2];
+          if (this.simulEfunHandler) {
+            const result = this.simulEfunHandler(name2, args2);
+            this.stack.push(result);
+          } else {
+            throw new Error(`No simul_efun handler for: ${name2}`);
+          }
+          break;
+        }
+
         case OP.CALL_OTHER: {
           const methodIdx = this.readShort();
           const argCount = bc[this.pc++];
@@ -369,7 +417,7 @@ export class Machine {
           }
           const map = new Map();
           for (const { key, value } of pairs) {
-            map.set(key.value, value);
+            map.set(mappingKey(key), { key, value });
           }
           this.stack.push(mkMapping(map));
           break;
@@ -385,10 +433,12 @@ export class Machine {
             }
             this.stack.push(obj.value[idx]);
           } else if (obj.type === T_MAPPING) {
-            const result = obj.value.get(index.value);
-            this.stack.push(result ?? SVALUE_ZERO);
+            const entry = obj.value.get(mappingKey(index));
+            this.stack.push(entry ? entry.value : SVALUE_ZERO);
           } else if (obj.type === T_STRING) {
             this.stack.push(mkInt(obj.value.charCodeAt(index.value)));
+          } else if (obj.type === T_BUFFER) {
+            this.stack.push(mkInt(obj.value[index.value]));
           } else {
             throw new RuntimeError(`Cannot index type ${obj.type}`);
           }
@@ -402,6 +452,8 @@ export class Machine {
             this.stack.push(obj.value[obj.value.length - index.value]);
           } else if (obj.type === T_STRING) {
             this.stack.push(mkInt(obj.value.charCodeAt(obj.value.length - index.value)));
+          } else if (obj.type === T_BUFFER) {
+            this.stack.push(mkInt(obj.value[obj.value.length - index.value]));
           } else {
             throw new RuntimeError(`Cannot reverse-index type ${obj.type}`);
           }
@@ -420,6 +472,8 @@ export class Machine {
             this.stack.push(mkArray(obj.value.slice(fromIdx, toIdx + 1)));
           } else if (obj.type === T_STRING) {
             this.stack.push(mkString(obj.value.slice(fromIdx, toIdx + 1)));
+          } else if (obj.type === T_BUFFER) {
+            this.stack.push({ type: T_BUFFER, value: obj.value.subarray(fromIdx, toIdx + 1) });
           } else {
             throw new RuntimeError(`Cannot range type ${obj.type}`);
           }
@@ -432,6 +486,10 @@ export class Machine {
             endOffset,
             savedSp: this.stack.length,
             savedCallSp: this.callStack.length,
+            savedProgram: this.currentProgram,
+            savedLocals: this.locals,
+            savedFunctionName: this._currentFunctionName,
+            savedForeachDepth: this._foreachStack.length,
           });
           break;
         }
@@ -551,9 +609,9 @@ export class Machine {
           if (state.index >= state.entries.length) {
             this.pc = exitOffset;
           } else {
-            const [key, val] = state.entries[state.index++];
-            this.locals[keyIdx] = mkString(String(key));
-            this.locals[valIdx] = val;
+            const [, entry] = state.entries[state.index++];
+            this.locals[keyIdx] = entry.key;
+            this.locals[valIdx] = entry.value;
           }
           break;
         }
@@ -570,6 +628,10 @@ export class Machine {
           const handler = this._catchStack.pop();
           this.stack.length = handler.savedSp;
           this.callStack.length = handler.savedCallSp;
+          this.currentProgram = handler.savedProgram;
+          this.locals = handler.savedLocals;
+          this._currentFunctionName = handler.savedFunctionName;
+          this._foreachStack.length = handler.savedForeachDepth;
           this.pc = handler.endOffset;
           const msg = e instanceof RuntimeError ? e.message : e.message;
           this.stack.push(mkString(msg));

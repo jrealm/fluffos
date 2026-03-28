@@ -2,7 +2,7 @@ import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { serializeObject, deserializeObject, registerSaveEfuns } from '../../src/runtime/efuns/save.mjs';
 import { EfunRegistry } from '../../src/runtime/efuns.mjs';
-import { mkInt, mkString, mkArray, mkMapping, T_STRING, T_ARRAY, T_MAPPING } from '../../src/vm/svalue.mjs';
+import { mkInt, mkString, mkArray, mkMapping, mappingKey, T_STRING, T_ARRAY, T_MAPPING } from '../../src/vm/svalue.mjs';
 import { LpcObject } from '../../src/runtime/object.mjs';
 import { Program } from '../../src/vm/program.mjs';
 
@@ -91,10 +91,12 @@ describe('save_variable / restore_variable', () => {
   });
 
   it('round-trips mapping', () => {
-    const m = new Map(); m.set('key', mkInt(99));
+    const key = mkString('key');
+    const m = new Map(); m.set(mappingKey(key), { key, value: mkInt(99) });
     const saved = reg.call('save_variable', [mkMapping(m)]);
     const restored = reg.call('restore_variable', [saved]);
     assert.equal(restored.type, T_MAPPING);
-    assert.equal(restored.value.get('key').value, 99);
+    const entry = restored.value.get(mappingKey(key));
+    assert.equal(entry.value.value, 99);
   });
 });

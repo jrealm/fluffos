@@ -4,7 +4,7 @@ import {
   T_INT, T_STRING, T_FLOAT, T_ARRAY, T_MAPPING,
   mkInt, mkString, mkFloat, mkArray, mkMapping,
   SVALUE_ZERO, SVALUE_ONE,
-  isTruthy
+  isTruthy, mappingKey
 } from '../../src/vm/svalue.mjs';
 
 describe('svalue', () => {
@@ -34,11 +34,12 @@ describe('svalue', () => {
   });
 
   it('creates mapping values', () => {
+    const key = mkString('key');
     const m = new Map();
-    m.set('key', mkInt(10));
+    m.set(mappingKey(key), { key, value: mkInt(10) });
     const v = mkMapping(m);
     assert.equal(v.type, T_MAPPING);
-    assert.equal(v.value.get('key').value, 10);
+    assert.equal(v.value.get(mappingKey(key)).value.value, 10);
   });
 
   it('provides SVALUE_ZERO and SVALUE_ONE constants', () => {

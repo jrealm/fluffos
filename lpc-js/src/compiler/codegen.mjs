@@ -4,6 +4,12 @@ import { Program } from '../vm/program.mjs';
 import { OP } from '../vm/opcodes.mjs';
 import * as AST from './ast.mjs';
 
+let _simulEfunNames = new Set();
+
+export function setSimulEfunNames(names) {
+  _simulEfunNames = names;
+}
+
 class Emitter {
   constructor() {
     this.code = [];
@@ -300,7 +306,7 @@ class CodeGen {
 
     const loopStart = this.emitter.currentOffset();
     this.breakStack.push([]);
-    this.continueStack.push(-1); // patched below
+    this.continueStack.push([]); // deferred patching — collect holes
 
     let exitHole = -1;
     if (node.condition) {
@@ -312,9 +318,11 @@ class CodeGen {
 
     this.genStatement(node.body);
 
-    // Continue target is just before the update
+    // Continue target is just before the update — patch all collected holes
     const updateStart = this.emitter.currentOffset();
-    this.continueStack[this.continueStack.length - 1] = updateStart;
+    for (const hole of this.continueStack[this.continueStack.length - 1]) {
+      this.emitter.patchShort(hole, updateStart);
+    }
 
     if (node.update) {
       this.genExpr(node.update);
@@ -376,18 +384,22 @@ class CodeGen {
       }
     }
 
+    // Break and no-match-no-default jump to POP at the end to clean up discriminant
+
+    // Emit POP at the end — both break and no-match-no-default jump here
+    const popAddr = this.emitter.currentOffset();
+    this.emitter.emitOp(OP.POP); // pop discriminant
+
     // Patch default jump
     if (defaultIdx >= 0) {
       this.emitter.patchShort(defaultJumpHole, bodyAddrs[defaultIdx]);
     } else {
-      this.emitter.patchShort(defaultJumpHole, this.emitter.currentOffset());
+      this.emitter.patchShort(defaultJumpHole, popAddr);
     }
 
-    this.emitter.emitOp(OP.POP); // pop discriminant
-
-    const exitAddr = this.emitter.currentOffset();
+    // Break targets also jump to POP
     for (const hole of this.breakStack.pop()) {
-      this.emitter.patchShort(hole, exitAddr);
+      this.emitter.patchShort(hole, popAddr);
     }
   }
 
@@ -400,7 +412,14 @@ class CodeGen {
   genContinue() {
     this.emitter.emitOp(OP.JUMP);
     const target = this.continueStack[this.continueStack.length - 1];
-    this.emitter.emitShort(target >= 0 ? target : 0);
+    if (Array.isArray(target)) {
+      // Deferred patching (for loops) — record the hole
+      target.push(this.emitter.currentOffset());
+      this.emitter.emitShort(0);
+    } else {
+      // Direct address (while/do-while loops)
+      this.emitter.emitShort(target);
+    }
   }
 
   genForeach(node) {
@@ -481,9 +500,29 @@ class CodeGen {
       }
 
       case 'BinaryExpression':
-        this.genExpr(node.left);
-        this.genExpr(node.right);
-        this.emitBinaryOp(node.operator);
+        if (node.operator === '&&') {
+          this.genExpr(node.left);
+          this.emitter.emitOp(OP.DUP);
+          this.emitter.emitOp(OP.JUMP_IF_ZERO);
+          const andHole = this.emitter.currentOffset();
+          this.emitter.emitShort(0);
+          this.emitter.emitOp(OP.POP);
+          this.genExpr(node.right);
+          this.emitter.patchShort(andHole, this.emitter.currentOffset());
+        } else if (node.operator === '||') {
+          this.genExpr(node.left);
+          this.emitter.emitOp(OP.DUP);
+          this.emitter.emitOp(OP.JUMP_IF_NONZERO);
+          const orHole = this.emitter.currentOffset();
+          this.emitter.emitShort(0);
+          this.emitter.emitOp(OP.POP);
+          this.genExpr(node.right);
+          this.emitter.patchShort(orHole, this.emitter.currentOffset());
+        } else {
+          this.genExpr(node.left);
+          this.genExpr(node.right);
+          this.emitBinaryOp(node.operator);
+        }
         break;
 
       case 'UnaryExpression':
@@ -530,6 +569,12 @@ class CodeGen {
           // Inherited function — CALL_INHERITED
           const nameIdx = this.emitter.addString(node.name);
           this.emitter.emitOp(OP.CALL_INHERITED);
+          this.emitter.emitShort(nameIdx);
+          this.emitter.emit(node.args.length);
+        } else if (_simulEfunNames.has(node.name)) {
+          // Simul_efun call
+          const nameIdx = this.emitter.addString(node.name);
+          this.emitter.emitOp(OP.CALL_SIMUL);
           this.emitter.emitShort(nameIdx);
           this.emitter.emit(node.args.length);
         } else {
@@ -762,7 +807,6 @@ class CodeGen {
       '+': OP.ADD, '-': OP.SUB, '*': OP.MUL, '/': OP.DIV, '%': OP.MOD,
       '==': OP.EQ, '!=': OP.NE, '<': OP.LT, '<=': OP.LE, '>': OP.GT, '>=': OP.GE,
       '&': OP.BITAND, '|': OP.BITOR, '^': OP.BITXOR, '<<': OP.LSH, '>>': OP.RSH,
-      '&&': OP.BITAND, '||': OP.BITOR,
     };
     const opcode = map[op];
     if (opcode === undefined) throw new Error(`Unknown binary operator: ${op}`);

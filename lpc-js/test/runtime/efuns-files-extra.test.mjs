@@ -71,4 +71,27 @@ describe('file efuns extra', () => {
       assert.equal(result.value, -1);
     });
   });
+
+  describe('path traversal prevention', () => {
+    it('blocks read_file with ../', () => {
+      const result = reg.call('read_file', [mkString('../../etc/passwd')]);
+      assert.equal(result.value, 0);
+    });
+
+    it('blocks read_file with /subdir/../../escape', () => {
+      const result = reg.call('read_file', [mkString('/subdir/../../etc/passwd')]);
+      assert.equal(result.value, 0);
+    });
+
+    it('blocks write_file with path traversal', () => {
+      const result = reg.call('write_file', [mkString('../../tmp/evil.txt'), mkString('bad')]);
+      assert.equal(result.value, 0);
+    });
+
+    it('allows valid paths within mudlib', () => {
+      fs.writeFileSync(path.join(tmpDir, 'ok.txt'), 'safe');
+      const result = reg.call('read_file', [mkString('/ok.txt')]);
+      assert.equal(result.value, 'safe');
+    });
+  });
 });

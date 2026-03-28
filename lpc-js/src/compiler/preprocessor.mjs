@@ -231,12 +231,123 @@ function evaluateConstExpr(expr, defines) {
     if (macro && macro.params === null) return macro.body || '0';
     return '0';
   });
+
   try {
-    const sanitized = withValues.replace(/[^0-9+\-*/%<>=!&|() ]/g, '');
-    return Boolean(Function(`"use strict"; return (${sanitized})`)());
+    const tokens = tokenizeExpr(withValues);
+    let pos = 0;
+    function peek() { return tokens[pos] ?? null; }
+    function next() { return tokens[pos++]; }
+
+    function parseOr() {
+      let v = parseAnd();
+      while (peek() === '||') { next(); const r = parseAnd(); v = (v || r) ? 1 : 0; }
+      return v;
+    }
+    function parseAnd() {
+      let v = parseBitOr();
+      while (peek() === '&&') { next(); const r = parseBitOr(); v = (v && r) ? 1 : 0; }
+      return v;
+    }
+    function parseBitOr() {
+      let v = parseBitXor();
+      while (peek() === '|') { next(); v = v | parseBitXor(); }
+      return v;
+    }
+    function parseBitXor() {
+      let v = parseBitAnd();
+      while (peek() === '^') { next(); v = v ^ parseBitAnd(); }
+      return v;
+    }
+    function parseBitAnd() {
+      let v = parseEquality();
+      while (peek() === '&') { next(); v = v & parseEquality(); }
+      return v;
+    }
+    function parseEquality() {
+      let v = parseRelational();
+      while (peek() === '==' || peek() === '!=') {
+        const op = next(); const r = parseRelational();
+        v = op === '==' ? (v === r ? 1 : 0) : (v !== r ? 1 : 0);
+      }
+      return v;
+    }
+    function parseRelational() {
+      let v = parseShift();
+      while (peek() === '<' || peek() === '>' || peek() === '<=' || peek() === '>=') {
+        const op = next(); const r = parseShift();
+        if (op === '<') v = v < r ? 1 : 0;
+        else if (op === '>') v = v > r ? 1 : 0;
+        else if (op === '<=') v = v <= r ? 1 : 0;
+        else v = v >= r ? 1 : 0;
+      }
+      return v;
+    }
+    function parseShift() {
+      let v = parseAdditive();
+      while (peek() === '<<' || peek() === '>>') {
+        const op = next(); const r = parseAdditive();
+        v = op === '<<' ? v << r : v >> r;
+      }
+      return v;
+    }
+    function parseAdditive() {
+      let v = parseMultiplicative();
+      while (peek() === '+' || peek() === '-') {
+        const op = next(); const r = parseMultiplicative();
+        v = op === '+' ? v + r : v - r;
+      }
+      return v;
+    }
+    function parseMultiplicative() {
+      let v = parseUnary();
+      while (peek() === '*' || peek() === '/' || peek() === '%') {
+        const op = next(); const r = parseUnary();
+        if (op === '*') v = v * r;
+        else if (op === '/') v = r !== 0 ? Math.trunc(v / r) : 0;
+        else v = r !== 0 ? v % r : 0;
+      }
+      return v;
+    }
+    function parseUnary() {
+      if (peek() === '!') { next(); return parseUnary() ? 0 : 1; }
+      if (peek() === '-') { next(); return -parseUnary(); }
+      if (peek() === '~') { next(); return ~parseUnary(); }
+      return parsePrimary();
+    }
+    function parsePrimary() {
+      if (peek() === '(') { next(); const v = parseOr(); if (peek() === ')') next(); return v; }
+      const tok = next();
+      return parseInt(tok, 10) || 0;
+    }
+
+    return Boolean(parseOr());
   } catch {
     return false;
   }
+}
+
+function tokenizeExpr(expr) {
+  const tokens = [];
+  let i = 0;
+  while (i < expr.length) {
+    if (expr[i] === ' ' || expr[i] === '\t') { i++; continue; }
+    if (i + 1 < expr.length) {
+      const two = expr[i] + expr[i + 1];
+      if (['&&', '||', '==', '!=', '<=', '>=', '<<', '>>'].includes(two)) {
+        tokens.push(two); i += 2; continue;
+      }
+    }
+    if ('+-*/%<>=!&|^~()'.includes(expr[i])) {
+      tokens.push(expr[i]); i++; continue;
+    }
+    if (expr[i] >= '0' && expr[i] <= '9') {
+      let num = '';
+      while (i < expr.length && expr[i] >= '0' && expr[i] <= '9') { num += expr[i++]; }
+      tokens.push(num); continue;
+    }
+    i++;
+  }
+  return tokens;
 }
 
 function resolveInclude(pathSpec, includePaths, readFile) {

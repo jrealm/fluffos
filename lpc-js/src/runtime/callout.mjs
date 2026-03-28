@@ -2,20 +2,29 @@ export class CallOutManager {
   constructor() {
     this.queue = [];
     this.onFire = null;
+    this.maxCallOuts = 1000;
+    this.activeCount = 0;
   }
 
   add(func, object, delaySec, args) {
+    if (this.activeCount >= this.maxCallOuts) {
+      throw new Error(`Too many call_outs (max ${this.maxCallOuts})`);
+    }
     const entry = {
       func, object, args,
       expireAt: Date.now() + delaySec * 1000,
       cancelled: false,
     };
     this._heapPush(entry);
+    this.activeCount++;
     return entry;
   }
 
   remove(entry) {
-    entry.cancelled = true;
+    if (!entry.cancelled) {
+      entry.cancelled = true;
+      this.activeCount--;
+    }
   }
 
   getAll() {
@@ -35,8 +44,11 @@ export class CallOutManager {
     const now = Date.now();
     while (this.queue.length > 0 && this.queue[0].expireAt <= now) {
       const entry = this._heapPop();
-      if (!entry.cancelled && this.onFire) {
-        this.onFire(entry.func, entry.object, entry.args);
+      if (!entry.cancelled) {
+        this.activeCount--;
+        if (this.onFire) {
+          this.onFire(entry.func, entry.object, entry.args);
+        }
       }
     }
   }

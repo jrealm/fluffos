@@ -1,4 +1,4 @@
-import { mkInt, mkString, mkFloat, mkArray, mkMapping, T_INT, T_STRING, T_FLOAT, T_ARRAY, T_MAPPING, SVALUE_ZERO } from '../../vm/svalue.mjs';
+import { mkInt, mkString, mkFloat, mkArray, mkMapping, T_INT, T_STRING, T_FLOAT, T_ARRAY, T_MAPPING, SVALUE_ZERO, mappingKey } from '../../vm/svalue.mjs';
 
 export function serializeObject(obj) {
   const lines = [];
@@ -36,8 +36,8 @@ export function serializeValue(sv) {
     case T_ARRAY: return '({' + sv.value.map(v => serializeValue(v)).join(',') + '})';
     case T_MAPPING: {
       const pairs = [];
-      for (const [k, v] of sv.value) {
-        pairs.push(serializeValue(mkString(String(k))) + ':' + serializeValue(v));
+      for (const [, entry] of sv.value) {
+        pairs.push(serializeValue(entry.key) + ':' + serializeValue(entry.value));
       }
       return '([' + pairs.join(',') + '])';
     }
@@ -64,7 +64,7 @@ export function deserializeValue(str) {
       if (colonIdx >= 0) {
         const k = deserializeValue(pair.slice(0, colonIdx));
         const v = deserializeValue(pair.slice(colonIdx + 1));
-        m.set(k.value, v);
+        m.set(mappingKey(k), { key: k, value: v });
       }
     }
     return mkMapping(m);
