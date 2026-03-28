@@ -1,4 +1,4 @@
-import { mkInt, mkString, SVALUE_ZERO, T_OBJECT, T_STRING, T_ARRAY } from '../../vm/svalue.mjs';
+import { mkInt, mkString, SVALUE_ZERO, T_OBJECT, T_STRING, T_ARRAY, T_INT, T_FUNCTION } from '../../vm/svalue.mjs';
 import { lpcSprintf } from './sprintf.mjs';
 
 export function registerInteractiveEfuns(reg, driver) {
@@ -61,12 +61,35 @@ export function registerInteractiveEfuns(reg, driver) {
   });
 
   reg.register('input_to', (args) => {
-    const funcName = args[0].value;
-    if (driver.currentObject && driver.currentObject.interactive) {
+    const func = args[0];
+    // input_to(func, [flag], [extra_args...])
+    // func can be string or function pointer
+    // flag: 1 = no echo (passwords)
+    // Remaining args after flag are passed to callback after the user input
+    let flag = 0;
+    let extraArgs = [];
+    for (let i = 1; i < args.length; i++) {
+      if (args[i].type === T_INT && extraArgs.length === 0 && i === 1) {
+        flag = args[i].value;
+      } else {
+        extraArgs.push(args[i]);
+      }
+    }
+
+    const player = driver.currentPlayer ?? driver.currentObject;
+    if (player?.interactive) {
       const obj = driver.currentObject;
-      const conn = obj.interactive;
+      const conn = player.interactive;
       conn.setInputTo((line) => {
-        driver.apply(funcName, obj, [mkString(line)]);
+        driver.currentObject = obj;
+        driver.currentPlayer = player;
+        const callArgs = [mkString(line), ...extraArgs];
+        if (func.type === T_FUNCTION) {
+          driver.vm._callFunctionPtr(func.value, callArgs);
+        } else {
+          driver.apply(func.value, obj, callArgs);
+        }
+        driver.currentPlayer = null;
       });
     }
     return SVALUE_ZERO;
@@ -169,12 +192,15 @@ export function registerInteractiveEfuns(reg, driver) {
 
   reg.register('get_char', (args) => {
     const funcName = args[0].value;
-    if (driver.currentObject?.interactive) {
+    const player = driver.currentPlayer ?? driver.currentObject;
+    if (player?.interactive) {
       const obj = driver.currentObject;
-      const conn = obj.interactive;
+      const conn = player.interactive;
       conn.charMode = true;
       conn.charCallback = (ch) => {
+        driver.currentPlayer = player;
         driver.apply(funcName, obj, [mkString(ch)]);
+        driver.currentPlayer = null;
       };
     }
     return SVALUE_ZERO;

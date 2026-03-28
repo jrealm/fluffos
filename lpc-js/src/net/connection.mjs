@@ -98,7 +98,7 @@ export class Connection {
 
     let idx;
     while ((idx = this.inputBuffer.indexOf('\n')) >= 0) {
-      const line = this.inputBuffer.slice(0, idx);
+      const line = this.inputBuffer.slice(0, idx).replace(/\r$/, '');
       this.inputBuffer = this.inputBuffer.slice(idx + 1);
 
       if (this.inputToCallback) {
