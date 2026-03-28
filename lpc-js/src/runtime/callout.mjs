@@ -18,6 +18,10 @@ export class CallOutManager {
     entry.cancelled = true;
   }
 
+  getAll() {
+    return this.queue;
+  }
+
   findCallOut(object, func) {
     for (const entry of this.queue) {
       if (!entry.cancelled && entry.object === object && entry.func === func) {

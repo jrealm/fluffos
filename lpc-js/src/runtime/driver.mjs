@@ -21,6 +21,7 @@ export class Driver {
     this.callOuts = new CallOutManager();
     this.heartBeatList = new Set();
     this.currentObject = null;
+    this.bootTime = Date.now();
 
     this.efuns.loadDefaults();
     this._registerDriverEfuns();
@@ -310,6 +311,68 @@ export class Driver {
         writeFile([mkString(logDir + '/' + args[0].value), mkString(args[1].value)]);
       }
       return SVALUE_ZERO;
+    });
+
+    this.efuns.register('objects', () => {
+      const result = [];
+      for (const [, obj] of driver.objects.objects) {
+        if (!obj.isDestructed()) result.push({ type: T_OBJECT, value: obj });
+      }
+      return mkArray(result);
+    });
+
+    this.efuns.register('livings', () => {
+      const result = [];
+      for (const [, obj] of driver.objects.objects) {
+        if (obj.livingName && !obj.isDestructed()) {
+          result.push({ type: T_OBJECT, value: obj });
+        }
+      }
+      return mkArray(result);
+    });
+
+    this.efuns.register('shutdown', (args) => {
+      const code = args.length > 0 ? args[0].value : 0;
+      driver.stopServer();
+      if (typeof process !== 'undefined') process.exit(code);
+      return SVALUE_ZERO;
+    });
+
+    this.efuns.register('call_out_info', () => {
+      const result = [];
+      for (const entry of driver.callOuts.getAll()) {
+        if (!entry.cancelled) {
+          const remaining = Math.max(0, Math.floor((entry.expireAt - Date.now()) / 1000));
+          result.push(mkArray([
+            { type: T_OBJECT, value: entry.object },
+            mkString(entry.func),
+            mkInt(remaining),
+            ...entry.args,
+          ]));
+        }
+      }
+      return mkArray(result);
+    });
+
+    this.efuns.register('uptime', () => {
+      return mkInt(Math.floor((Date.now() - driver.bootTime) / 1000));
+    });
+
+    this.efuns.register('commands', () => {
+      if (!driver.currentObject) return mkArray([]);
+      const result = [];
+      const searchList = driver.commands.getSearchList(driver.currentObject);
+      for (const obj of searchList) {
+        for (const action of driver.commands.getActions(obj)) {
+          result.push(mkArray([
+            mkString(action.verb),
+            mkString(action.func),
+            { type: T_OBJECT, value: obj },
+            mkInt(action.flag),
+          ]));
+        }
+      }
+      return mkArray(result);
     });
   }
 

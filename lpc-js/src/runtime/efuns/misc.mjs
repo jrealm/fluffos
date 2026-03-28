@@ -1,6 +1,7 @@
 import { mkInt, mkString, mkFloat, mkArray, mkMapping, T_INT, T_STRING, T_FLOAT, T_ARRAY, T_MAPPING, T_OBJECT, T_FUNCTION, T_BUFFER, SVALUE_ZERO } from '../../vm/svalue.mjs';
 import { getMachine } from '../apply.mjs';
 import { createHash } from 'node:crypto';
+import { hostname } from 'node:os';
 
 const TYPE_NAMES = {
   [T_INT]: 'int',
@@ -135,5 +136,30 @@ export function registerMiscEfuns(reg) {
   reg.register('crypt', (args) => {
     const data = args[0].value;
     return mkString(createHash('md5').update(data).digest('hex').slice(0, 13));
+  });
+
+  reg.register('ctime', (args) => {
+    const ts = args.length > 0 ? args[0].value * 1000 : Date.now();
+    return mkString(new Date(ts).toString());
+  });
+
+  reg.register('query_host_name', () => {
+    return mkString(hostname());
+  });
+
+  reg.register('origin', () => {
+    return mkString('efun');
+  });
+
+  reg.register('memory_info', () => {
+    return mkInt(process.memoryUsage().heapUsed);
+  });
+
+  reg.register('mud_status', () => {
+    return mkString('Running');
+  });
+
+  reg.register('call_stack', () => {
+    return mkArray([]);
   });
 }
