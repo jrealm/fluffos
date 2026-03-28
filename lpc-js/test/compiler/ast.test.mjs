@@ -103,4 +103,27 @@ describe('AST nodes', () => {
     assert.equal(n.type, 'Program');
     assert.equal(n.body.length, 1);
   });
+
+  it('creates ClassDecl', () => {
+    const n = AST.classDecl('point', [
+      { typeName: 'int', name: 'x' },
+      { typeName: 'int', name: 'y' },
+    ], 1);
+    assert.equal(n.type, 'ClassDecl');
+    assert.equal(n.name, 'point');
+    assert.equal(n.members.length, 2);
+  });
+
+  it('creates ClassMemberAccess', () => {
+    const obj = AST.identifier('p', 1);
+    const n = AST.classMemberAccess(obj, 'x', 1);
+    assert.equal(n.type, 'ClassMemberAccess');
+    assert.equal(n.member, 'x');
+  });
+
+  it('creates ScopeResolution call', () => {
+    const n = AST.scopeCallExpr('func', [AST.intLiteral(1, 1)], 1);
+    assert.equal(n.type, 'ScopeCallExpression');
+    assert.equal(n.name, 'func');
+  });
 });

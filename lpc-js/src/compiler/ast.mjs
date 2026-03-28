@@ -125,3 +125,15 @@ export function mappingLiteral(entries, line) {
 export function inheritDecl(path, flags, line) {
   return { type: 'InheritDecl', path, flags, line };
 }
+
+export function classDecl(name, members, line) {
+  return { type: 'ClassDecl', name, members, line };
+}
+
+export function classMemberAccess(object, member, line) {
+  return { type: 'ClassMemberAccess', object, member, line };
+}
+
+export function scopeCallExpr(name, args, line) {
+  return { type: 'ScopeCallExpression', name, args, line };
+}
