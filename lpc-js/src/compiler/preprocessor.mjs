@@ -140,7 +140,26 @@ function parseDefine(rest) {
   if (!match) return { macroName: rest.trim(), params: null, body: '' };
   const macroName = match[1];
   const params = match[2] !== undefined ? match[2].split(',').map(p => p.trim()) : null;
-  const body = (match[3] ?? '').trim();
+  let body = (match[3] ?? '').trim();
+  // Strip trailing C-style comment from macro body
+  const commentIdx = body.indexOf('/*');
+  if (commentIdx >= 0) {
+    // Only strip if the /* is not inside a string literal
+    let inStr = false;
+    for (let ci = 0; ci < commentIdx; ci++) {
+      if (body[ci] === '"') inStr = !inStr;
+    }
+    if (!inStr) body = body.slice(0, commentIdx).trim();
+  }
+  // Strip trailing // comment
+  const lineComment = body.indexOf('//');
+  if (lineComment >= 0) {
+    let inStr = false;
+    for (let ci = 0; ci < lineComment; ci++) {
+      if (body[ci] === '"') inStr = !inStr;
+    }
+    if (!inStr) body = body.slice(0, lineComment).trim();
+  }
   return { macroName, params, body };
 }
 
@@ -176,9 +195,9 @@ function expandMacros(line, defines) {
           for (let p = 0; p < macro.params.length; p++) {
             expanded = expanded.replaceAll(macro.params[p], args[p] ?? '');
           }
-          result += expanded;
+          result += expandMacros(expanded, defines);
         } else if (macro.params === null) {
-          result += macro.body;
+          result += expandMacros(macro.body, defines);
         } else {
           result += ident;
         }

@@ -109,20 +109,33 @@ export function tokenize(source, file = '<input>') {
 
     const startLine = line;
 
-    // String literal
+    // String literal (with adjacent string concatenation: "a" "b" → "ab")
     if (ch() === '"') {
-      advance();
       let str = '';
-      while (pos < source.length && ch() !== '"') {
-        if (ch() === '\\') {
-          advance();
-          str += ESCAPE[ch()] ?? ch();
-          advance();
-        } else {
-          str += advance();
+      while (true) {
+        advance(); // opening "
+        while (pos < source.length && ch() !== '"') {
+          if (ch() === '\\') {
+            advance();
+            str += ESCAPE[ch()] ?? ch();
+            advance();
+          } else {
+            str += advance();
+          }
         }
+        if (pos < source.length) advance(); // closing "
+        // Check for adjacent string literal (skip whitespace)
+        const savedPos = pos;
+        const savedLine = line;
+        while (pos < source.length && (ch() === ' ' || ch() === '\t' || ch() === '\r' || ch() === '\n')) advance();
+        if (pos < source.length && ch() === '"') {
+          continue; // Concatenate next string
+        }
+        // Not adjacent — restore position
+        pos = savedPos;
+        line = savedLine;
+        break;
       }
-      if (pos < source.length) advance(); // closing "
       tokens.push(token(T.STRING_LIT, str, startLine, file));
       continue;
     }

@@ -632,8 +632,9 @@ class Parser {
     if (tok.type === T.ARRAY_OPEN) {
       this.advance();
       const elements = [];
-      if (!this.at(T.ARRAY_CLOSE)) {
-        do { elements.push(this.parseExpression()); } while (this.match(T.COMMA));
+      while (!this.at(T.ARRAY_CLOSE) && !this.at(T.EOF)) {
+        elements.push(this.parseExpression());
+        if (!this.match(T.COMMA)) break;
       }
       this.expect(T.ARRAY_CLOSE);
       return AST.arrayLiteral(elements, tok.line);
@@ -642,13 +643,12 @@ class Parser {
     if (tok.type === T.MAPPING_OPEN) {
       this.advance();
       const entries = [];
-      if (!this.at(T.MAPPING_CLOSE)) {
-        do {
-          const key = this.parseExpression();
-          this.expect(T.COLON);
-          const value = this.parseExpression();
-          entries.push({ key, value });
-        } while (this.match(T.COMMA));
+      while (!this.at(T.MAPPING_CLOSE) && !this.at(T.EOF)) {
+        const key = this.parseExpression();
+        this.expect(T.COLON);
+        const value = this.parseExpression();
+        entries.push({ key, value });
+        if (!this.match(T.COMMA)) break;
       }
       this.expect(T.MAPPING_CLOSE);
       return AST.mappingLiteral(entries, tok.line);
