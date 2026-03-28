@@ -6,6 +6,7 @@ export class ObjectManager {
   constructor(options = {}) {
     this.readFile = options.readFile ?? null;
     this.includePaths = options.includePaths ?? [];
+    this.compileDefines = options.defines ?? {};
     this.objects = new Map();
     this.cloneCounter = 0;
     this.programCache = new Map();
@@ -74,7 +75,12 @@ export class ObjectManager {
     }
 
     collectFile(filename);
-    const prog = compileWithInherit(filename, files);
+    const compileOptions = {
+      defines: this.compileDefines,
+      includePaths: this.includePaths,
+      readFile: this.readFile,
+    };
+    const prog = compileWithInherit(filename, files, compileOptions);
     this.programCache.set(filename, prog);
     return prog;
   }

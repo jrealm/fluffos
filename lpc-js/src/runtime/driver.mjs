@@ -23,10 +23,12 @@ import { mkInt, mkString, mkArray, SVALUE_ZERO, T_OBJECT, T_MAPPING, T_STRING, T
 import { O_HEART_BEAT } from './object.mjs';
 import { setSimulEfunNames } from '../compiler/codegen.mjs';
 import { RuntimeError } from '../vm/machine.mjs';
+import { LpcOptions } from './options.mjs';
 
 export class Driver {
   constructor(config, options = {}) {
     this.config = config;
+    this.options = options.lpcOptions ?? LpcOptions.fromConfig(config);
     this.vm = new Machine();
     this.efuns = new EfunRegistry();
     this.callOuts = new CallOutManager();
@@ -70,6 +72,7 @@ export class Driver {
     this.objects = new ObjectManager({
       readFile,
       includePaths: (config['include directories'] ?? '').split(':').filter(Boolean),
+      defines: this.options.toDefines(),
     });
 
     this.callOuts.onFire = (func, obj, args) => {
@@ -104,6 +107,48 @@ export class Driver {
 
     const mudlibDir = config['mudlib directory'] ?? '/';
     registerFileEfuns(this.efuns, mudlibDir, this);
+
+    // Apply compile-time options — disable features
+    this._applyOptions();
+  }
+
+  _applyOptions() {
+    const opts = this.options;
+    const noop = () => SVALUE_ZERO;
+
+    if (opts.get('NO_ADD_ACTION')) {
+      this.efuns.register('add_action', noop);
+      this.efuns.register('remove_action', noop);
+      this.efuns.register('query_verb', noop);
+      this.efuns.register('commands', () => mkArray([]));
+      this.efuns.register('enable_commands', noop);
+      this.efuns.register('disable_commands', noop);
+      this.efuns.register('command', noop);
+      this.efuns.register('notify_fail', noop);
+    }
+
+    if (opts.get('NO_SHADOWS')) {
+      this.efuns.register('shadow', noop);
+      this.efuns.register('query_shadowing', noop);
+    }
+
+    if (opts.get('NO_ENVIRONMENT')) {
+      this.efuns.register('environment', noop);
+      this.efuns.register('move_object', noop);
+      this.efuns.register('all_inventory', () => mkArray([]));
+      this.efuns.register('deep_inventory', () => mkArray([]));
+      this.efuns.register('first_inventory', noop);
+      this.efuns.register('next_inventory', noop);
+      this.efuns.register('present', noop);
+    }
+
+    if (opts.get('NO_SNOOP')) {
+      this.efuns.register('snoop', noop);
+      this.efuns.register('query_snoop', noop);
+      this.efuns.register('query_snooping', noop);
+    }
+
+    this.vm.maxEvalCost = opts.get('MAX_EVAL_COST') ?? this.vm.maxEvalCost;
   }
 
   _registerDriverEfuns() {

@@ -848,8 +848,8 @@ class CodeGen {
   }
 }
 
-export function compile(source, filename = '<input>') {
-  const ppResult = preprocess(source);
+export function compile(source, filename = '<input>', compileOptions = {}) {
+  const ppResult = preprocess(source, compileOptions);
   const ast = parse(ppResult.source, filename);
   const gen = new CodeGen(ast);
   gen.pragmas = ppResult.pragmas;
@@ -858,7 +858,7 @@ export function compile(source, filename = '<input>') {
   return prog;
 }
 
-export function compileWithInherit(filename, files) {
+export function compileWithInherit(filename, files, compileOptions = {}) {
   const cache = new Map();
 
   function compileFile(fname) {
@@ -866,7 +866,8 @@ export function compileWithInherit(filename, files) {
     // Try with and without .c extension
     const source = files[fname] ?? files[fname + '.c'] ?? files[fname.replace(/\.c$/, '')];
     if (source === undefined) throw new Error(`File not found: ${fname}`);
-    const ast = parse(source, fname);
+    const ppResult = preprocess(source, compileOptions);
+    const ast = parse(ppResult.source, fname);
 
     // Separate inherits from other declarations
     const inheritPrograms = [];
