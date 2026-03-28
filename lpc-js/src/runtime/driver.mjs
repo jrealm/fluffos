@@ -209,16 +209,6 @@ export class Driver {
       return SVALUE_ZERO;
     });
 
-    // move: alias for move_object (used by many mudlibs as this_object()->move(dest))
-    this.efuns.register('move', (args) => {
-      const dest = args[0].type === T_OBJECT ? args[0].value
-        : (args[0].type === T_STRING ? driver.objects.load(args[0].value.endsWith('.c') ? args[0].value : args[0].value + '.c') : null);
-      if (driver.currentObject && dest) {
-        driver.currentObject.moveTo(dest);
-      }
-      return SVALUE_ZERO;
-    });
-
     this.efuns.register('move_object', (args) => {
       const dest = args[0].type === T_OBJECT ? args[0].value : null;
       if (driver.currentObject && dest) {
