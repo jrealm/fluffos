@@ -741,6 +741,20 @@ class Parser {
 
     if (tok.type === T.LPAREN) {
       this.advance();
+      // (*func_ptr)(args) — function pointer dereference call
+      if (this.at(T.STAR)) {
+        this.advance(); // skip *
+        const fpExpr = this.parseExpression();
+        this.expect(T.RPAREN);
+        // If followed by (, it's a call: (*fp)(args) → evaluate(fp, args)
+        if (this.at(T.LPAREN)) {
+          this.advance();
+          const args = this.parseArgList();
+          this.expect(T.RPAREN);
+          return AST.callExpr('evaluate', [fpExpr, ...args], tok.line);
+        }
+        return fpExpr; // Just (*expr) without call — same as expr
+      }
       const expr = this.parseExpression();
       this.expect(T.RPAREN);
       return expr;
