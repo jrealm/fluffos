@@ -76,14 +76,12 @@ export function registerEncodingEfuns(reg, driver) {
     return mkString(chars.join(''));
   });
 
-  // strwidth: calculate display width of a string (CJK aware)
+  // strwidth: in FluffOS, strwidth is an alias for strlen (character count, not display width)
   reg.register('strwidth', (args) => {
     const str = args[0].value;
-    let width = 0;
-    for (const ch of str) {
-      const cp = ch.codePointAt(0);
-      width += isWide(cp) ? 2 : 1;
-    }
-    return mkInt(width);
+    // Count Unicode characters (not bytes, not display width)
+    let count = 0;
+    for (const _ of str) count++;
+    return mkInt(count);
   });
 }
