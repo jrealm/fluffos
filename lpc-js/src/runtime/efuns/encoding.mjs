@@ -76,12 +76,13 @@ export function registerEncodingEfuns(reg, driver) {
     return mkString(chars.join(''));
   });
 
-  // strwidth: in FluffOS, strwidth is an alias for strlen (character count, not display width)
+  // strwidth: display width in columns (CJK characters are width 2, others are width 1)
   reg.register('strwidth', (args) => {
     const str = args[0].value;
-    // Count Unicode characters (not bytes, not display width)
-    let count = 0;
-    for (const _ of str) count++;
-    return mkInt(count);
+    let width = 0;
+    for (const ch of str) {
+      width += isWide(ch.codePointAt(0)) ? 2 : 1;
+    }
+    return mkInt(width);
   });
 }
