@@ -23,10 +23,11 @@ export function registerMathEfuns(reg) {
   });
   reg.register('atan', (args) => mkFloat(Math.atan(toNum(args[0]))));
 
-  // sqrt: always returns float (C spec), error if negative
+  // sqrt: returns int (floor) when input is int, float otherwise
   reg.register('sqrt', (args) => {
     const v = toNum(args[0]);
     if (v < 0) throw new Error('Bad argument 1 to math->sqrt()');
+    if (args[0].type === T_INT) return mkInt(Math.floor(Math.sqrt(v)));
     return mkFloat(Math.sqrt(v));
   });
 
