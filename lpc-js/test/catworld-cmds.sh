@@ -16,9 +16,13 @@ PASS=0; FAIL=0; ERROR=0; TOTAL=0
 
 # ── Helpers ──────────────────────────────────────────────────
 
+MUDLIB_DIR='/Users/jrealm/Documents/cat/mudlib'
+
 start_server() {
   echo "[*] 啟動 CatWorld on port $PORT ..."
   pkill -f "node.*boot-catworld" 2>/dev/null || true
+  # 清理測試角色存檔，確保每次測試都建立全新角色
+  rm -f "$MUDLIB_DIR/data/login/t/testplayer.o"
   sleep 1
   node "$BOOT_SCRIPT" "$PORT" &
   SERVER_PID=$!
@@ -216,6 +220,8 @@ echo ""
 echo "[*] 測試巫師指令 (jrealm)..."
 
 WIZ_OUTPUT="/tmp/catworld-wiz-output.txt"
+# 清理 jrealm 存檔，確保每次測試都建立全新角色
+rm -f "$MUDLIB_DIR/data/login/j/jrealm.o"
 # 建立 jrealm 管理者帳號並測試巫師指令
 cat <<'WIZCMDS' | send_session "$WIZ_OUTPUT"
 1 jrealm

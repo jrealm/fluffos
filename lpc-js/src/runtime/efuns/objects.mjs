@@ -15,8 +15,8 @@ export function registerObjectEfuns(reg, driver) {
     return mkString(name.startsWith('/') ? name : '/' + name);
   });
 
-  // base_name: returns "/" + filename with #N stripped, keeps .c extension
-  // C: add_slash(ob->obname) then strip from '#' onward
+  // base_name: returns "/" + filename with #N and .c stripped
+  // C: add_slash(ob->obname) then strip from '#' onward; FluffOS stores names without .c
   reg.register('base_name', (args) => {
     const obj = getObjArg(args, driver);
     if (!obj) return SVALUE_ZERO;
@@ -24,6 +24,8 @@ export function registerObjectEfuns(reg, driver) {
     // Strip clone suffix #N
     const hashIdx = name.indexOf('#');
     if (hashIdx !== -1) name = name.slice(0, hashIdx);
+    // Strip .c extension (FluffOS object names don't include .c)
+    if (name.endsWith('.c')) name = name.slice(0, -2);
     return mkString(name.startsWith('/') ? name : '/' + name);
   });
 

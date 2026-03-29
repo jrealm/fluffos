@@ -19,7 +19,7 @@ describe('object info efuns', () => {
   });
   it('base_name', () => {
     const clone = makeObj('/std/object.c').clone(5);
-    assert.equal(reg.call('base_name', [{ type: T_OBJECT, value: clone }]).value, '/std/object.c');
+    assert.equal(reg.call('base_name', [{ type: T_OBJECT, value: clone }]).value, '/std/object');
   });
   it('file_name', () => {
     assert.equal(reg.call('file_name', [{ type: T_OBJECT, value: makeObj('/std/object.c') }]).value, '/std/object');
