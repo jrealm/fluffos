@@ -64,8 +64,8 @@ describe('array efuns', () => {
 
   it('member_array', () => {
     const arr = mkArray([mkInt(10), mkInt(20), mkInt(30)]);
-    assert.equal(reg.call('member_array', [arr, mkInt(20)]).value, 1);
-    assert.equal(reg.call('member_array', [arr, mkInt(99)]).value, -1);
+    assert.equal(reg.call('member_array', [mkInt(20), arr]).value, 1);
+    assert.equal(reg.call('member_array', [mkInt(99), arr]).value, -1);
   });
 
   it('sort_array', () => {

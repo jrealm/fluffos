@@ -53,7 +53,16 @@ export function registerArrayEfuns(reg) {
     const arr = [...args[0].value];
     const cmp = args[1];
 
-    if (!cmp || (cmp.type === T_INT && cmp.value === 0)) {
+    if (!cmp) {
+      // Default: ascending sort
+      arr.sort((a, b) => {
+        if (a.value < b.value) return -1;
+        if (a.value > b.value) return 1;
+        return 0;
+      });
+      return mkArray(arr);
+    }
+    if (cmp.type === T_INT && cmp.value === 0) {
       return mkArray(arr); // no sort
     }
 
@@ -94,7 +103,10 @@ export function registerArrayEfuns(reg) {
 
     for (const item of arr) {
       let key;
-      if (func.type === T_FUNCTION) {
+      if (!func) {
+        // No function: group by value identity
+        key = item;
+      } else if (func.type === T_FUNCTION) {
         key = vm._callFunctionPtr(func.value, [item]);
       } else if (func.type === T_STRING) {
         key = vm.driver?.apply(func.value, item.value, []);
