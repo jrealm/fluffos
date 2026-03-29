@@ -124,10 +124,8 @@ export function registerContribEfuns(reg, driver) {
         const entry = mapping.value.get(key);
         if (entry) {
           segments.push({ text: String(entry.value.value ?? ''), visible: false });
-        } else {
-          // Unmatched tags: keep as literal text (C behavior)
-          segments.push({ text: match[0], visible: true });
         }
+        // Unmatched tags: silently skip (remove from output)
         lastEnd = match.index + match[0].length;
       }
       if (lastEnd < str.length) {
@@ -159,12 +157,29 @@ export function registerContribEfuns(reg, driver) {
         if (word === '') continue;
 
         const wordLen = word.length; // simplified: treat all chars as visible
-        if (currentVisible + wordLen > absWrap && currentLine.length > 0) {
-          if (fillout) currentLine = currentLine.padEnd(absWrap);
-          lines.push(currentLine);
-          currentLine = indentStr + word.trimStart();
-          currentVisible = indent + word.trimStart().length;
-          isFirst = false;
+        if (currentVisible + wordLen > absWrap) {
+          if (currentLine.length > 0) {
+            if (fillout) currentLine = currentLine.padEnd(absWrap);
+            lines.push(currentLine);
+            currentLine = indentStr;
+            currentVisible = indent;
+            isFirst = false;
+          }
+          // Hard-break word into chunks
+          let remaining = word.trimStart();
+          while (remaining.length > 0) {
+            const available = absWrap - currentVisible;
+            if (remaining.length <= available) {
+              currentLine += remaining;
+              currentVisible += remaining.length;
+              remaining = '';
+            } else {
+              lines.push(currentLine + remaining.slice(0, available));
+              remaining = remaining.slice(available);
+              currentLine = indentStr;
+              currentVisible = indent;
+            }
+          }
         } else {
           currentLine += word;
           currentVisible += wordLen;
