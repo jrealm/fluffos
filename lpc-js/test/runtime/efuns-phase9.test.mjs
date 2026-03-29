@@ -185,7 +185,8 @@ describe('Phase 9: contrib — object reflection', () => {
     prog.inherits = [{ program: parentProg, varOffset: 0 }];
     const obj = { program: prog };
 
-    const result = reg.call('functions', [{ type: T_OBJECT, value: obj }, mkInt(1)]);
+    // flag=0: include inherited (default), return simple string names
+    const result = reg.call('functions', [{ type: T_OBJECT, value: obj }, mkInt(0)]);
     assert.equal(result.value.length, 2);
     assert.equal(result.value[0].value, 'local_func');
     assert.equal(result.value[1].value, 'parent_func');
