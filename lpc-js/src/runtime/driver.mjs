@@ -20,7 +20,7 @@ import { registerCompressEfuns } from './efuns/compress.mjs';
 import { spawn } from 'node:child_process';
 import { LpcSocketManager } from '../net/lpc-socket.mjs';
 import { apply, setMachine, setApplyHook } from './apply.mjs';
-import { mkInt, mkString, mkArray, SVALUE_ZERO, T_OBJECT, T_MAPPING, T_STRING, T_ARRAY, T_FUNCTION } from '../vm/svalue.mjs';
+import { mkInt, mkString, mkArray, mappingKey, SVALUE_ZERO, T_OBJECT, T_MAPPING, T_STRING, T_ARRAY, T_FUNCTION } from '../vm/svalue.mjs';
 import { O_HEART_BEAT } from './object.mjs';
 import { setSimulEfunNames } from '../compiler/codegen.mjs';
 import { RuntimeError } from '../vm/machine.mjs';
@@ -60,7 +60,15 @@ export class Driver {
         obj = objSv.value;
       } else if (objSv.type === T_STRING) {
         const path = objSv.value.endsWith('.c') ? objSv.value : objSv.value + '.c';
-        obj = this.objects.find(path) ?? this.objects.load(path);
+        obj = this.objects.find(path);
+        if (!obj) {
+          try {
+            obj = this.objects.load(path);
+          } catch (e) {
+            console.error(`[call_other] Failed to load ${path}: ${e.message.slice(0, 150)}`);
+            throw e;
+          }
+        }
       } else {
         return SVALUE_ZERO;
       }
@@ -114,12 +122,28 @@ export class Driver {
       }
     };
 
-    // Set UIDs on newly created objects
+    // Set UIDs on newly created objects — match CatWorld's creator_file() logic
     this.objects.onObjectCreated = (obj) => {
-      // Default: derive uid from filename path (first directory component)
       const parts = obj.filename.split('/').filter(Boolean);
-      obj.uid = parts.length > 1 ? parts[0] : 'root';
-      obj.euid = obj.uid;
+      const dir = parts.length > 0 ? parts[0] : '';
+      let uid;
+      switch (dir) {
+        case 'adm': case 'cmds': case 'daemon': case 'std':
+        case 'obj': case 'feature': case 'include':
+          uid = 'Root';
+          break;
+        case 'u':
+          uid = parts.length >= 3 ? parts[2] : 'Root';
+          break;
+        case 'd': case 'open': case 'ftp':
+          uid = parts.length >= 2 ? parts[1] : 'Root';
+          break;
+        default:
+          uid = 'Root';
+          break;
+      }
+      obj.uid = uid;
+      obj.euid = uid;
     };
 
     this.commands = new CommandManager();
@@ -197,6 +221,15 @@ export class Driver {
       return SVALUE_ZERO;
     });
 
+    // call_other(ob, func, args...) — function form of ob->func(args)
+    this.efuns.register('call_other', (args) => {
+      if (args.length < 2) return SVALUE_ZERO;
+      const objSv = args[0];
+      const method = args[1].value;
+      const callArgs = args.slice(2);
+      return this.vm.callOtherHandler(objSv, method, callArgs);
+    });
+
     this.efuns.register('call_out', (args) => {
       const func = args[0]; // Can be string or function pointer
       const delay = args[1].value;
@@ -242,9 +275,34 @@ export class Driver {
     });
 
     this.efuns.register('move_object', (args) => {
-      const dest = args[0].type === T_OBJECT ? args[0].value : null;
-      if (driver.currentObject && dest) {
-        driver.currentObject.moveTo(dest);
+      let dest = args[0].type === T_OBJECT ? args[0].value : null;
+      if (!dest && args[0].type === T_STRING) {
+        const path = args[0].value.endsWith('.c') ? args[0].value : args[0].value + '.c';
+        dest = driver.objects.find(path);
+        if (!dest) try { dest = driver.objects.load(path); } catch {}
+      }
+      const mover = driver.currentObject;
+      if (mover && dest) {
+        mover.moveTo(dest);
+        // FluffOS calls init() on the moved object and everything in the room
+        const savedObj = driver.currentObject;
+        try {
+          // Call init() on the room for the moved object
+          driver.currentObject = dest;
+          try { apply('init', dest, []); } catch {}
+          // Call init() on each object in the room for the moved object
+          for (const ob of dest.inventory) {
+            if (ob !== mover && !ob.isDestructed()) {
+              driver.currentObject = ob;
+              try { apply('init', ob, []); } catch {}
+            }
+          }
+          // Call init() on the moved object itself (to pick up environment actions)
+          driver.currentObject = mover;
+          try { apply('init', mover, []); } catch {}
+        } finally {
+          driver.currentObject = savedObj;
+        }
       }
       return SVALUE_ZERO;
     });
@@ -268,8 +326,20 @@ export class Driver {
       return SVALUE_ZERO;
     });
 
-    this.efuns.register('previous_object', () => {
-      return driver.currentObject ? { type: T_OBJECT, value: driver.currentObject } : SVALUE_ZERO;
+    this.efuns.register('previous_object', (args) => {
+      // Walk the VM call stack to find the previous distinct object
+      const idx = args.length > 0 && args[0].type === T_INT ? args[0].value : 0;
+      const frames = driver.vm.callStack;
+      const current = driver.currentObject;
+      let found = 0;
+      for (let i = frames.length - 1; i >= 0; i--) {
+        const obj = frames[i].object;
+        if (obj && obj !== current) {
+          if (found === idx) return { type: T_OBJECT, value: obj };
+          found++;
+        }
+      }
+      return SVALUE_ZERO;
     });
 
     this.efuns.register('query_verb', () => {
@@ -365,6 +435,9 @@ export class Driver {
       from.interactive = null;
       to.interactive = conn;
       conn.object = to;
+      to.onceInteractive = true;
+      // Update currentPlayer so write() targets the new object
+      if (driver.currentPlayer === from) driver.currentPlayer = to;
       return mkInt(1);
     });
 
@@ -736,6 +809,194 @@ export class Driver {
         return SVALUE_ZERO;
       }
     });
+
+    // find_call_out: find a pending call_out by name or handle
+    this.efuns.register('find_call_out', (args) => {
+      const sv = args[0];
+      if (sv.type === T_STRING) {
+        const entry = driver.callOuts.findCallOut(driver.currentObject, sv.value);
+        if (entry) {
+          return mkInt(Math.max(0, Math.ceil((entry.expireAt - Date.now()) / 1000)));
+        }
+      }
+      return mkInt(-1);
+    });
+
+    // hb_time: return the heartbeat interval in seconds
+    this.efuns.register('hb_time', () => {
+      return mkInt(driver._heartBeatInterval ?? 1);
+    });
+
+    // set_reset: set reset time for an object
+    this.efuns.register('set_reset', (args) => {
+      const obj = args[0].type === T_OBJECT ? args[0].value : null;
+      if (!obj) return SVALUE_ZERO;
+      if (args.length > 1) {
+        obj.nextReset = Date.now() + args[1].value * 1000;
+      } else {
+        obj.nextReset = 0;
+      }
+      return SVALUE_ZERO;
+    });
+
+    // set_hide: hide/unhide object (stub — no effect in lpc-js)
+    this.efuns.register('set_hide', () => SVALUE_ZERO);
+
+    // set_light: set light level (stub — no lighting system in lpc-js)
+    this.efuns.register('set_light', () => mkInt(0));
+
+    // reclaim_objects: reclaim destructed objects, return count reclaimed
+    this.efuns.register('reclaim_objects', () => {
+      let count = 0;
+      for (const [id, obj] of driver.objects.objects) {
+        if (obj.isDestructed()) {
+          driver.objects.objects.delete(id);
+          count++;
+        }
+      }
+      return mkInt(count);
+    });
+
+    // flush_messages: flush pending output to connection
+    this.efuns.register('flush_messages', (args) => {
+      if (args.length > 0 && args[0].type === T_OBJECT) {
+        const obj = args[0].value;
+        if (obj.interactive?.flush) obj.interactive.flush();
+      } else {
+        for (const [, obj] of driver.objects.objects) {
+          if (obj.interactive?.flush) obj.interactive.flush();
+        }
+      }
+      return SVALUE_ZERO;
+    });
+
+    // query_load_average: return load average string
+    this.efuns.register('query_load_average', () => {
+      const cmdsPerSec = driver._commandsPerSecond ?? 0;
+      const lpcCost = driver._lpcCostPerSecond ?? 0;
+      return mkString(`${cmdsPerSec.toFixed(2)} cmds/s, ${lpcCost.toFixed(2)} comp lines/s`);
+    });
+
+    // malloc_status: return memory allocator status
+    this.efuns.register('malloc_status', () => {
+      const mem = process.memoryUsage();
+      return mkString(
+        `Heap used: ${(mem.heapUsed / 1024 / 1024).toFixed(1)}MB\n` +
+        `Heap total: ${(mem.heapTotal / 1024 / 1024).toFixed(1)}MB\n` +
+        `RSS: ${(mem.rss / 1024 / 1024).toFixed(1)}MB\n` +
+        `External: ${(mem.external / 1024 / 1024).toFixed(1)}MB`
+      );
+    });
+
+    // dumpallobj: dump all objects info
+    this.efuns.register('dumpallobj', (args) => {
+      const lines = [];
+      for (const [id, obj] of driver.objects.objects) {
+        if (!obj.isDestructed()) {
+          lines.push(`${id} refs:${obj.refCount ?? 0}`);
+        }
+      }
+      if (args.length > 0 && args[0].type === T_STRING) {
+        try {
+          const { writeFileSync } = require('node:fs');
+          writeFileSync(args[0].value, lines.join('\n') + '\n');
+        } catch { /* ignore */ }
+      }
+      return SVALUE_ZERO;
+    });
+
+    // dump_file_descriptors: return string describing open connections
+    this.efuns.register('dump_file_descriptors', () => {
+      const lines = [];
+      let fd = 0;
+      for (const [, obj] of driver.objects.objects) {
+        if (obj.interactive) {
+          lines.push(`${fd++}: ${obj.objectId} (${obj.interactive.remoteAddress ?? 'unknown'})`);
+        }
+      }
+      return mkString(lines.join('\n'));
+    });
+
+    // enable_wizard / disable_wizard: wizard mode toggle
+    this.efuns.register('enable_wizard', () => {
+      if (driver.currentObject) driver.currentObject._wizard = true;
+      return SVALUE_ZERO;
+    });
+
+    this.efuns.register('disable_wizard', () => {
+      if (driver.currentObject) driver.currentObject._wizard = false;
+      return SVALUE_ZERO;
+    });
+
+    // set_this_player: manually set the current player
+    this.efuns.register('set_this_player', (args) => {
+      if (args[0].type === T_OBJECT) {
+        driver.currentPlayer = args[0].value;
+      } else {
+        driver.currentPlayer = null;
+      }
+      return SVALUE_ZERO;
+    });
+
+    // this_interactive: return the current interactive user (not NPC)
+    this.efuns.register('this_interactive', () => {
+      if (driver.currentPlayer?.interactive) {
+        return { type: T_OBJECT, value: driver.currentPlayer };
+      }
+      return SVALUE_ZERO;
+    });
+
+    // this_user: alias for this_player
+    this.efuns.register('this_user', () => {
+      if (driver.currentPlayer) {
+        return { type: T_OBJECT, value: driver.currentPlayer };
+      }
+      return SVALUE_ZERO;
+    });
+
+    // query_privs / set_privs: privilege system
+    this.efuns.register('query_privs', (args) => {
+      const obj = args.length > 0 && args[0].type === T_OBJECT ? args[0].value : driver.currentObject;
+      if (!obj) return SVALUE_ZERO;
+      return obj._privs ? mkString(obj._privs) : SVALUE_ZERO;
+    });
+
+    this.efuns.register('set_privs', (args) => {
+      const obj = args[0].type === T_OBJECT ? args[0].value : null;
+      if (!obj) return SVALUE_ZERO;
+      obj._privs = args[1].type === T_STRING ? args[1].value : String(args[1].value);
+      return SVALUE_ZERO;
+    });
+
+    // COMPAT_32 aliases
+    this.efuns.register('strstr', (args) => this.efuns.call('strsrch', args));
+    this.efuns.register('m_delete', (args) => this.efuns.call('map_delete', args));
+    this.efuns.register('m_values', (args) => this.efuns.call('values', args));
+    this.efuns.register('m_indices', (args) => this.efuns.call('keys', args));
+    this.efuns.register('inherit_list', (args) => this.efuns.call('shallow_inherit_list', args));
+    this.efuns.register('query_once_interactive', (args) => this.efuns.call('userp', args));
+    this.efuns.register('raise_error', (args) => this.efuns.call('error', args));
+    this.efuns.register('get_eval_cost', () => this.efuns.call('eval_cost', []));
+
+    // get_config: get driver configuration value by index
+    this.efuns.register('get_config', (args) => {
+      const configKeys = [
+        'mudlib directory', 'driver log', 'name', 'port number',
+        'max users', 'max bits', 'max array size', 'max mapping size',
+        'max buffer size', 'max string length', 'max byte transfer',
+        'reserved size', 'hash table size', 'object table size',
+        'max call outs', 'max eval cost', 'time to reset', 'time to clean up',
+        'default error message', 'default fail message',
+      ];
+      const idx = args[0].value;
+      if (idx < 0 || idx >= configKeys.length) return SVALUE_ZERO;
+      const key = configKeys[idx];
+      const val = driver.config[key];
+      if (val === undefined) return SVALUE_ZERO;
+      const num = parseInt(val, 10);
+      if (!isNaN(num) && String(num) === val) return mkInt(num);
+      return mkString(String(val));
+    });
   }
 
   mainLoop() {
@@ -821,6 +1082,7 @@ export class Driver {
       throw new RuntimeError(`Unknown function: ${name}`);
     }
     if (this.simulEfunNames.has(name)) {
+      if (name === 'write') console.error(`[simul write] player=${this.currentPlayer?.filename} arg=${String(args[0]?.value).slice(0,30)}`);
       return apply(name, this.simulEfunObject, args);
     }
     throw new RuntimeError(`Unknown function: ${name}`);
@@ -870,20 +1132,26 @@ export class Driver {
     const traceArray = mkArray(
       tb.frames.map(f => {
         const m = new Map();
-        m.set('function', mkString(f.function ?? '<unknown>'));
-        m.set('program', mkString(f.file ?? '<unknown>'));
-        m.set('object', mkString(f.object ?? '<none>'));
-        m.set('line', mkInt(f.line ?? 0));
+        m.set(mappingKey(mkString('function')), { key: mkString('function'), value: mkString(f.function ?? '<unknown>') });
+        m.set(mappingKey(mkString('program')), { key: mkString('program'), value: mkString(f.file ?? '<unknown>') });
+        m.set(mappingKey(mkString('object')), { key: mkString('object'), value: mkString(f.object ?? '<none>') });
+        m.set(mappingKey(mkString('line')), { key: mkString('line'), value: mkInt(f.line ?? 0) });
         return { type: T_MAPPING, value: m };
       })
     );
 
+    const firstFile = tb.frames[0]?.file ?? '<unknown>';
+    const firstObj = tb.frames[0]?.object;
+    const firstObjRef = firstObj ? this.objects.find(firstObj) ?? this.objects.find(firstObj + '.c') : null;
+
     const errorMap = new Map();
-    errorMap.set('error', mkString(tb.message));
-    errorMap.set('program', mkString(tb.frames[0]?.file ?? '<unknown>'));
-    errorMap.set('object', mkString(tb.frames[0]?.object ?? '<none>'));
-    errorMap.set('line', mkInt(tb.frames[0]?.line ?? 0));
-    errorMap.set('trace', traceArray);
+    const setKey = (k, v) => errorMap.set(mappingKey(mkString(k)), { key: mkString(k), value: v });
+    setKey('error', mkString(tb.message));
+    setKey('file', mkString(firstFile));
+    setKey('program', mkString(firstFile));
+    setKey('object', firstObjRef ? { type: T_OBJECT, value: firstObjRef } : mkString(firstObj ?? '<none>'));
+    setKey('line', mkInt(tb.frames[0]?.line ?? 0));
+    setKey('trace', traceArray);
 
     try {
       apply('error_handler', this.master, [
@@ -1008,6 +1276,7 @@ export class Driver {
     }
 
     loginObj.interactive = conn;
+    loginObj.onceInteractive = true;
     conn.object = loginObj;
     conn.state = CONN_LOGGED_IN;
 
@@ -1020,12 +1289,13 @@ export class Driver {
     conn.onLine = (line) => this._handleInput(conn, line);
     conn.onClose = () => this._handleDisconnect(conn);
 
-    // GMCP receive handler
+    // GMCP receive handler — always dispatch to conn.object (follows exec())
     conn.onGmcp = (msg, data) => {
-      if (loginObj && !loginObj.isDestructed()) {
-        this.currentObject = loginObj;
-        this.currentPlayer = loginObj;
-        apply('receive_gmcp', loginObj, [mkString(msg), data != null ? mkString(JSON.stringify(data)) : SVALUE_ZERO]);
+      const target = conn.object;
+      if (target && !target.isDestructed()) {
+        this.currentObject = target;
+        this.currentPlayer = target;
+        apply('gmcp', target, [mkString(data != null ? `${msg} ${JSON.stringify(data)}` : msg)]);
         this.currentObject = null;
         this.currentPlayer = null;
       }
@@ -1052,30 +1322,58 @@ export class Driver {
     this.currentObject = player;
     this.currentPlayer = player;
     this._notifyFailMsg = null;
+    this.vm.evalCost = 0;
 
-    const piResult = apply('process_input', player, [mkString(line)]);
-    if (piResult && piResult.value === 1) {
-      this.currentObject = null;
-      this.currentPlayer = null;
-      return;
-    }
-
-    const searchList = this.commands.getSearchList(player);
-    const handled = this.commands.dispatch(line, (func, obj, arg) => {
-      this.currentObject = obj;
-      const result = apply(func, obj, [mkString(arg)]);
-      return result && result.value;
-    }, searchList);
-
-    if (!handled && this._notifyFailMsg) {
-      const nf = this._notifyFailMsg;
-      if (nf.type === T_FUNCTION) {
-        this.vm._callFunctionPtr(nf.value, []);
-      } else {
-        conn.send(nf.type === T_STRING ? nf.value : String(nf.value));
+    try {
+      const piResult = apply('process_input', player, [mkString(line)]);
+      if (piResult && piResult.value === 1) {
+        this.currentObject = null;
+        this.currentPlayer = null;
+        return;
       }
-    } else if (!handled) {
-      conn.send('What?\n');
+      // process_input can return a modified command string
+      const processedLine = (piResult && piResult.type === T_STRING) ? piResult.value : line;
+
+      const searchList = this.commands.getSearchList(player);
+      const handled = this.commands.dispatch(processedLine, (func, obj, arg, verb) => {
+        this.currentObject = obj;
+        this.vm._currentObject = obj;
+        this._currentVerb = verb;
+        let result;
+        if (typeof func === 'object' && func.kind) {
+          // Function pointer from add_action((: func :), ...)
+          // Must set globals to the object's variables (like apply does)
+          const savedProg = this.vm.currentProgram;
+          const savedGlobals = this.vm.globals;
+          this.vm.currentProgram = obj.program;
+          this.vm.globals = obj.variables;
+          try {
+            result = this.vm._callFunctionPtr(func, [mkString(arg)]);
+          } finally {
+            obj.variables = this.vm.globals;
+            this.vm.currentProgram = savedProg;
+            this.vm.globals = savedGlobals;
+          }
+        } else {
+          result = apply(func, obj, [mkString(arg)]);
+        }
+        return result && result.value;
+      }, searchList);
+
+      if (!handled && this._notifyFailMsg) {
+        const nf = this._notifyFailMsg;
+        if (nf.type === T_FUNCTION) {
+          this.vm._callFunctionPtr(nf.value, []);
+        } else {
+          if (nf.type === T_STRING) conn.send(nf.value);
+          else if (nf.type !== T_INT || nf.value !== 0) conn.send(String(nf.value));
+        }
+      } else if (!handled) {
+        conn.send('What?\n');
+      }
+    } catch (e) {
+      const tb = this.vm.collectTraceback(e.message ?? String(e));
+      this.callErrorHandler(tb, 0);
     }
 
     this.currentObject = null;

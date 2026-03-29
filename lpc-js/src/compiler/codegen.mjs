@@ -52,8 +52,9 @@ class Emitter {
 }
 
 class CodeGen {
-  constructor(ast) {
+  constructor(ast, filename = '<unknown>') {
     this.ast = ast;
+    this.filename = filename;
     this.emitter = new Emitter();
     this.locals = null;
     this.params = null;
@@ -233,6 +234,13 @@ class CodeGen {
     }
     if (this.locals && this.locals.has(name)) {
       return { scope: 'local', index: this.locals.get(name) };
+    }
+    // In lambda: fall back to parent scope for $(var) captures
+    if (this._parentParams && this._parentParams.has(name)) {
+      return { scope: 'local', index: this._parentParams.get(name) };
+    }
+    if (this._parentLocals && this._parentLocals.has(name)) {
+      return { scope: 'local', index: this._parentLocals.get(name) };
     }
     if (this.globals.has(name)) {
       return { scope: 'global', index: this.globals.get(name) };
@@ -576,7 +584,7 @@ class CodeGen {
 
       case 'Identifier': {
         const v = this.resolveVar(node.name);
-        if (!v) throw new Error(`Undefined variable: ${node.name} at line ${node.line}`);
+        if (!v) throw new Error(`Undefined variable: ${node.name} at ${this.filename}:${node.line}`);
         if (v.scope === 'local') {
           this.emitter.emitOp(OP.LOAD_LOCAL);
           this.emitter.emit(v.index);
@@ -795,6 +803,11 @@ class CodeGen {
 
           const savedParams = this.params;
           const savedLocals = this.locals;
+          const savedParentLocals = this._parentLocals;
+          const savedParentParams = this._parentParams;
+          // Allow lambda to capture outer scope variables via $(var)
+          this._parentLocals = this.locals;
+          this._parentParams = this.params;
           this.params = new Map();
           this.locals = new Map();
           for (let i = 1; i <= maxParam; i++) {
@@ -809,6 +822,8 @@ class CodeGen {
           });
           this.params = savedParams;
           this.locals = savedLocals;
+          this._parentLocals = savedParentLocals;
+          this._parentParams = savedParentParams;
 
           // Patch jump to land here (after closure body)
           this.emitter.patchShort(jumpHole, this.emitter.currentOffset());
@@ -924,7 +939,7 @@ class CodeGen {
     }
 
     const av = this.resolveVar(node.left.name);
-    if (!av) throw new Error(`Undefined variable: ${node.left.name}`);
+    if (!av) throw new Error(`Undefined variable: ${node.left.name} (left.type=${node.left.type}, op=${node.operator}, line=${node.line})`);
 
     if (node.operator === '=') {
       this.genExpr(node.right);
@@ -1005,7 +1020,7 @@ export function compile(source, filename = '<input>', compileOptions = {}) {
   };
   const ppResult = preprocess(source, { ...compileOptions, defines: fileDefines });
   const ast = parse(ppResult.source, filename);
-  const gen = new CodeGen(ast);
+  const gen = new CodeGen(ast, filename);
   gen.pragmas = ppResult.pragmas;
   const prog = gen.compile();
   prog.filename = filename;
@@ -1045,7 +1060,7 @@ export function compileWithInherit(filename, files, compileOptions = {}) {
       }
     }
 
-    const gen = new CodeGen(AST.program(bodyWithoutInherits, ast.line));
+    const gen = new CodeGen(AST.program(bodyWithoutInherits, ast.line), fname);
     gen.inheritPrograms = inheritPrograms;
 
     // Register inherited functions and variables before compile

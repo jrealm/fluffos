@@ -32,6 +32,13 @@ class Parser {
 
   at(type) { return this.peek().type === type; }
 
+  _isTypeToken(type) {
+    return type === T.TYPE_INT || type === T.TYPE_STRING || type === T.TYPE_FLOAT ||
+           type === T.TYPE_OBJECT || type === T.TYPE_MAPPING || type === T.TYPE_MIXED ||
+           type === T.TYPE_VOID || type === T.TYPE_BUFFER || type === T.TYPE_FUNCTION ||
+           type === T.TYPE_STATUS;
+  }
+
   expect(type) {
     const tok = this.advance();
     if (tok.type !== type) {
@@ -268,7 +275,17 @@ class Parser {
       // Otherwise treat as expression (variable name)
     }
 
-    const expr = this.parseExpression();
+    let expr = this.parseExpression();
+    // Support comma operator as statement separator: expr1, expr2, ...;
+    if (this.at(T.COMMA)) {
+      const exprs = [expr];
+      while (this.match(T.COMMA)) {
+        exprs.push(this.parseExpression());
+      }
+      this.expect(T.SEMICOLON);
+      // Return as a block of expression statements
+      return AST.block(exprs.map(e => AST.expressionStatement(e, e.line)), tok.line);
+    }
     this.expect(T.SEMICOLON);
     return AST.expressionStatement(expr, tok.line);
   }
@@ -445,16 +462,25 @@ class Parser {
     while (!this.at(T.RBRACE) && !this.at(T.EOF)) {
       if (this.match(T.CASE)) {
         const test = this.parseExpression();
-        // Case range: case expr1 .. expr2:
+        // Case range: case expr1 .. expr2:  or open range: case expr1 ..:
         if (this.match(T.DOT_DOT)) {
-          const test2 = this.parseExpression();
+          let test2;
+          // Open-ended range: case 100..:  (no upper bound)
+          if (this.at(T.COLON)) {
+            test2 = null;
+          } else {
+            test2 = this.parseExpression();
+          }
           this.expect(T.COLON);
           const body = [];
           while (!this.at(T.CASE) && !this.at(T.DEFAULT) && !this.at(T.RBRACE) && !this.at(T.EOF)) {
             body.push(this.parseStatement());
           }
-          // Expand range into individual cases — body only on the last one
-          if (test.type === 'IntLiteral' && test2.type === 'IntLiteral') {
+          if (test2 === null) {
+            // Open range — emit as default-like case with the test value
+            cases.push(AST.switchCase(test, body, test.line));
+          } else if (test.type === 'IntLiteral' && test2.type === 'IntLiteral') {
+            // Expand range into individual cases — body only on the last one
             for (let v = test.value; v < test2.value; v++) {
               cases.push(AST.switchCase(AST.intLiteral(v, test.line), [], test.line));
             }
@@ -510,6 +536,11 @@ class Parser {
         this.at(T.LT_LT_EQ) || this.at(T.GT_GT_EQ)) {
       const op = this.advance();
       const right = this.parseAssignment();
+      // Handle !x = y → !(x = y) — common LPC pattern
+      if (left.type === 'UnaryExpression' && left.operator === '!' && left.prefix) {
+        const assign = AST.assignExpr(op.value, left.operand, right, op.line);
+        return AST.unaryExpr('!', assign, true, left.line);
+      }
       return AST.assignExpr(op.value, left, right, op.line);
     }
     return left;
@@ -754,6 +785,19 @@ class Parser {
           return AST.callExpr('evaluate', [fpExpr, ...args], tok.line);
         }
         return fpExpr; // Just (*expr) without call — same as expr
+      }
+      // Type cast: (string)expr, (int *)expr, (mixed)expr — no-op at runtime
+      // But not if type keyword is used as variable: (status = expr)
+      if (this._isTypeToken(this.peek().type)) {
+        const saved = this.pos;
+        this.advance(); // skip type keyword
+        while (this.match(T.STAR)) {} // skip optional * (for array types)
+        if (this.at(T.RPAREN)) {
+          this.advance(); // consume )
+          return this.parseUnary(); // parse the expression being cast
+        }
+        // Not a type cast — restore and parse as expression
+        this.pos = saved;
       }
       const expr = this.parseExpression();
       this.expect(T.RPAREN);

@@ -131,6 +131,8 @@ export class Connection {
 
   send(data) {
     if (this.state === CONN_CLOSING) return;
+    // Filter out bare "0" sent from LPC functions returning 0 instead of strings
+    if (data === '0' || data === '0\n') return;
     if (this.protocol === 'websocket') {
       if (this.socket.readyState === 1) this.socket.send(data);
     } else {

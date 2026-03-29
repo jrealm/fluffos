@@ -1,26 +1,62 @@
 import { mkInt, mkString, SVALUE_ZERO, T_OBJECT, T_STRING, T_ARRAY, T_INT, T_FUNCTION } from '../../vm/svalue.mjs';
 import { lpcSprintf } from './sprintf.mjs';
+import { lookup as dnsLookup } from 'node:dns';
+
+// Helper: send message to an object (interactive or NPC via catch_tell)
+function tellObject(driver, obj, msg) {
+  if (!obj) return;
+  if (obj.interactive) {
+    obj.interactive.send(msg);
+  } else {
+    // NPC: call catch_tell() apply (C behavior)
+    try {
+      driver.apply('catch_tell', obj, [mkString(msg)]);
+    } catch { /* object may not have catch_tell */ }
+  }
+}
+
+// Helper: check if object should receive messages (interactive or has O_LISTENER/catch_tell)
+function isListener(obj) {
+  if (obj.interactive) return true;
+  if (obj.isListener) return true;
+  // Check if object has catch_tell function
+  if (obj.program?.findFunction?.('catch_tell') ||
+      obj.program?.findInheritedFunction?.('catch_tell')) return true;
+  return false;
+}
 
 export function registerInteractiveEfuns(reg, driver) {
+  // write: sends to command_giver (this_player), NOT current_object
+  // C: do_write() sends to command_giver, fallback to current_object
   reg.register('write', (args) => {
-    const text = args[0].type === T_STRING ? args[0].value : String(args[0].value);
-    if (driver.currentObject && driver.currentObject.interactive) {
-      driver.currentObject.interactive.send(text);
+    const sv = args[0];
+    // In FluffOS, write(0) and write(undefined) produce no output
+    if (!sv || (sv.type === T_INT && sv.value === 0)) return SVALUE_ZERO;
+    const text = sv.type === T_STRING ? sv.value : String(sv.value);
+    const target = driver.currentPlayer ?? driver.currentObject;
+    if (target) {
+      tellObject(driver, target, text);
     }
     return SVALUE_ZERO;
   });
 
+  // tell_object: sends to NPC via catch_tell if not interactive
   reg.register('tell_object', (args) => {
     const obj = args[0].type === T_OBJECT ? args[0].value : null;
-    const msg = args[1].type === T_STRING ? args[1].value : String(args[1].value);
-    if (obj && obj.interactive) {
-      obj.interactive.send(msg);
+    const sv = args[1];
+    if (!sv || (sv.type === T_INT && sv.value === 0)) return SVALUE_ZERO;
+    const msg = sv.type === T_STRING ? sv.value : String(sv.value);
+    if (obj) {
+      tellObject(driver, obj, msg);
     }
     return SVALUE_ZERO;
   });
 
   reg.register('message', (args) => {
-    const msg = args[1].type === T_STRING ? args[1].value : String(args[1].value);
+    const msgType = args[0];
+    const sv1 = args[1];
+    if (!sv1 || (sv1.type === T_INT && sv1.value === 0)) return SVALUE_ZERO;
+    const msg = sv1.type === T_STRING ? sv1.value : String(sv1.value);
     const targets = args[2];
     const exclude = args[3];
 
@@ -37,14 +73,18 @@ export function registerInteractiveEfuns(reg, driver) {
 
     function sendTo(obj) {
       if (excludeSet.has(obj)) return;
-      // FluffOS: message() calls receive_message() on the target.
-      // If the object has receive_message, call it. Otherwise direct send.
-      const hasFn = obj.program?.findFunction('receive_message') ||
-                    obj.program?.findInheritedFunction('receive_message');
+      // Call receive_message() apply (C behavior)
+      const hasFn = obj.program?.findFunction?.('receive_message') ||
+                    obj.program?.findInheritedFunction?.('receive_message');
       if (hasFn) {
-        driver.apply('receive_message', obj, [args[0], args[1]]);
+        driver.apply('receive_message', obj, [msgType, args[1]]);
       } else if (obj.interactive) {
         obj.interactive.send(msg);
+      } else {
+        // Non-listener, non-interactive: recurse into inventory (C behavior)
+        for (const inv of obj.inventory) {
+          sendTo(inv);
+        }
       }
     }
 
@@ -55,12 +95,9 @@ export function registerInteractiveEfuns(reg, driver) {
         if (sv.type === T_OBJECT) sendTo(sv.value);
       }
     } else if (targets.type === T_STRING) {
-      // String target — look up object by name
-      const obj = driver.objects.find(targets.value) ?? driver.objects.find(targets.value + '.c');
+      const obj = driver.objects?.find(targets.value) ?? driver.objects?.find(targets.value + '.c');
       if (obj) {
-        for (const inv of obj.inventory) {
-          sendTo(inv);
-        }
+        sendTo(obj);
       }
     }
     return SVALUE_ZERO;
@@ -68,8 +105,6 @@ export function registerInteractiveEfuns(reg, driver) {
 
   reg.register('input_to', (args) => {
     const func = args[0];
-    // input_to(func, [args...])
-    // FluffOS convention: int args are flags (OR'd), non-int args passed to callback
     let flag = 0;
     let extraArgs = [];
     for (let i = 1; i < args.length; i++) {
@@ -88,27 +123,37 @@ export function registerInteractiveEfuns(reg, driver) {
         driver.currentObject = obj;
         driver.currentPlayer = player;
         driver.vm._currentObject = obj;
+        driver.vm.evalCost = 0;
         const callArgs = [mkString(line), ...extraArgs];
-        if (func.type === T_FUNCTION) {
-          // Set up globals for the target object before calling function pointer
-          const savedProg = driver.vm.currentProgram;
-          const savedGlobals = driver.vm.globals;
-          driver.vm.currentProgram = obj.program;
-          driver.vm.globals = obj.variables;
-          try {
-            driver.vm._callFunctionPtr(func.value, callArgs);
-          } finally {
-            obj.variables = driver.vm.globals;
-            driver.vm.currentProgram = savedProg;
-            driver.vm.globals = savedGlobals;
+        try {
+          if (func.type === T_FUNCTION) {
+            const savedProg = driver.vm.currentProgram;
+            const savedGlobals = driver.vm.globals;
+            driver.vm.currentProgram = obj.program;
+            driver.vm.globals = obj.variables;
+            try {
+              driver.vm._callFunctionPtr(func.value, callArgs);
+            } finally {
+              obj.variables = driver.vm.globals;
+              driver.vm.currentProgram = savedProg;
+              driver.vm.globals = savedGlobals;
+            }
+          } else {
+            driver.apply(func.value, obj, callArgs);
           }
-        } else {
-          driver.apply(func.value, obj, callArgs);
+        } catch (e) {
+          if (e.message?.includes('undefined')) {
+            console.error(`[input_to] ${e.message}`);
+            console.error(e.stack?.split('\n').slice(1, 5).join('\n'));
+          }
+          const tb = driver.vm.collectTraceback(e.message ?? String(e));
+          driver.callErrorHandler(tb, 0);
         }
         driver.currentPlayer = null;
       });
+      return mkInt(1); // success
     }
-    return SVALUE_ZERO;
+    return SVALUE_ZERO; // failure
   });
 
   reg.register('interactive', (args) => {
@@ -127,7 +172,6 @@ export function registerInteractiveEfuns(reg, driver) {
   });
 
   reg.register('notify_fail', (args) => {
-    // Supports both string and function pointer
     driver._notifyFailMsg = args[0];
     return SVALUE_ZERO;
   });
@@ -139,13 +183,16 @@ export function registerInteractiveEfuns(reg, driver) {
     return SVALUE_ZERO;
   });
 
+  // say: sends to all listeners in environment (interactive + NPC with catch_tell)
+  // C: excludes command_giver, sends to env itself + env's inventory
   reg.register('say', (args) => {
     const msg = args[0].type === T_STRING ? args[0].value : String(args[0].value);
-    const env = driver.currentObject?.environment;
+    const curObj = driver.currentObject;
+    const env = curObj?.environment;
     if (!env) return SVALUE_ZERO;
 
     const excludeSet = new Set();
-    excludeSet.add(driver.currentObject);
+    excludeSet.add(curObj);
     if (args[1]) {
       if (args[1].type === T_ARRAY) {
         for (const sv of args[1].value) {
@@ -156,16 +203,28 @@ export function registerInteractiveEfuns(reg, driver) {
       }
     }
 
+    // Send to environment itself if it's a listener
+    if (!excludeSet.has(env) && isListener(env)) {
+      tellObject(driver, env, msg);
+    }
+
+    // Send to all listeners in environment's inventory
     for (const obj of env.inventory) {
-      if (!excludeSet.has(obj) && obj.interactive) {
-        obj.interactive.send(msg);
+      if (!excludeSet.has(obj) && isListener(obj)) {
+        tellObject(driver, obj, msg);
       }
     }
     return SVALUE_ZERO;
   });
 
+  // tell_room: sends to all listeners in room (supports string room arg)
   reg.register('tell_room', (args) => {
-    const room = args[0].type === T_OBJECT ? args[0].value : null;
+    let room;
+    if (args[0].type === T_OBJECT) {
+      room = args[0].value;
+    } else if (args[0].type === T_STRING) {
+      room = driver.objects?.find(args[0].value) ?? driver.objects?.find(args[0].value + '.c');
+    }
     if (!room) return SVALUE_ZERO;
     const msg = args[1].type === T_STRING ? args[1].value : String(args[1].value);
 
@@ -181,33 +240,52 @@ export function registerInteractiveEfuns(reg, driver) {
     }
 
     for (const obj of room.inventory) {
-      if (!excludeSet.has(obj) && obj.interactive) {
-        obj.interactive.send(msg);
+      if (!excludeSet.has(obj) && isListener(obj)) {
+        tellObject(driver, obj, msg);
       }
     }
     return SVALUE_ZERO;
   });
 
+  // shout: sends to all interactive/listener objects, excludes command_giver
   reg.register('shout', (args) => {
     const msg = args[0].type === T_STRING ? args[0].value : String(args[0].value);
+    const curPlayer = driver.currentPlayer ?? driver.currentObject;
     for (const [, obj] of driver.objects.objects) {
-      if (obj.interactive && !obj.isDestructed()) {
-        obj.interactive.send(msg);
+      if (obj === curPlayer) continue; // exclude self
+      if (obj.isDestructed?.()) continue;
+      if (!obj.environment) continue; // skip objects without environment
+      if (isListener(obj)) {
+        tellObject(driver, obj, msg);
       }
     }
     return SVALUE_ZERO;
   });
 
+  // receive: sends to current_object (self)
   reg.register('receive', (args) => {
-    const msg = args[0].type === T_STRING ? args[0].value : String(args[0].value);
+    const sv = args[0];
+    if (!sv || (sv.type === T_INT && sv.value === 0)) return SVALUE_ZERO;
+    const msg = sv.type === T_STRING ? sv.value : String(sv.value);
     if (driver.currentObject?.interactive) {
       driver.currentObject.interactive.send(msg);
     }
     return SVALUE_ZERO;
   });
 
+  // get_char: supports flag and extra args
   reg.register('get_char', (args) => {
-    const funcName = args[0].value;
+    const func = args[0];
+    let flag = 0;
+    let extraArgs = [];
+    for (let i = 1; i < args.length; i++) {
+      if (args[i].type === T_INT) {
+        flag |= args[i].value;
+      } else {
+        extraArgs.push(args[i]);
+      }
+    }
+
     const player = driver.currentPlayer ?? driver.currentObject;
     if (player?.interactive) {
       const obj = driver.currentObject;
@@ -215,9 +293,16 @@ export function registerInteractiveEfuns(reg, driver) {
       conn.charMode = true;
       conn.charCallback = (ch) => {
         driver.currentPlayer = player;
-        driver.apply(funcName, obj, [mkString(ch)]);
+        driver.currentObject = obj;
+        const callArgs = [mkString(ch), ...extraArgs];
+        if (func.type === T_FUNCTION) {
+          driver.vm._callFunctionPtr(func.value, callArgs);
+        } else {
+          driver.apply(func.value, obj, callArgs);
+        }
         driver.currentPlayer = null;
       };
+      return mkInt(1); // success
     }
     return SVALUE_ZERO;
   });
@@ -234,6 +319,9 @@ export function registerInteractiveEfuns(reg, driver) {
   reg.register('query_ip_name', (args) => {
     const obj = args.length > 0 && args[0].type === T_OBJECT ? args[0].value : driver.currentObject;
     if (obj?.interactive) {
+      // Return resolved hostname if available, otherwise IP
+      const hostname = obj.interactive.resolvedHostname;
+      if (hostname) return mkString(hostname);
       const addr = obj.interactive.remoteAddress ?? '';
       return mkString(addr.replace(/^::ffff:/, ''));
     }
@@ -302,6 +390,7 @@ export function registerInteractiveEfuns(reg, driver) {
       try { conn.close(); } catch {}
       obj.interactive = null;
       conn.object = null;
+      return mkInt(1);
     }
     return SVALUE_ZERO;
   });
@@ -314,15 +403,16 @@ export function registerInteractiveEfuns(reg, driver) {
     return SVALUE_ZERO;
   });
 
+  // printf: sends to command_giver (this_player), not current_object
   reg.register('printf', (args) => {
     const text = lpcSprintf(args);
-    if (driver.currentObject?.interactive) {
-      driver.currentObject.interactive.send(text);
+    const target = driver.currentPlayer ?? driver.currentObject;
+    if (target) {
+      tellObject(driver, target, text);
     }
     return SVALUE_ZERO;
   });
 
-  // websocket_handshake_done: complete WebSocket upgrade for current connection
   reg.register('websocket_handshake_done', () => {
     if (driver.currentObject?.interactive) {
       const conn = driver.currentObject.interactive;
@@ -332,7 +422,6 @@ export function registerInteractiveEfuns(reg, driver) {
     return SVALUE_ZERO;
   });
 
-  // enable_player: re-enable player input processing
   reg.register('enable_player', () => {
     if (driver.currentObject) {
       driver.currentObject.commandsEnabled = true;
@@ -341,11 +430,76 @@ export function registerInteractiveEfuns(reg, driver) {
     return SVALUE_ZERO;
   });
 
-  // disable_player: temporarily disable player input processing
   reg.register('disable_player', () => {
     if (driver.currentObject) {
       driver.currentObject._playerDisabled = true;
     }
+    return SVALUE_ZERO;
+  });
+
+  reg.register('in_edit', (args) => {
+    // ed editor not implemented — always return 0
+    return SVALUE_ZERO;
+  });
+
+  reg.register('in_input', (args) => {
+    const obj = args.length > 0 && args[0].type === T_OBJECT ? args[0].value : driver.currentObject;
+    if (obj?.interactive) {
+      return mkInt(obj.interactive.inputTo ? 1 : 0);
+    }
+    return SVALUE_ZERO;
+  });
+
+  reg.register('has_zmp', (args) => {
+    const obj = args.length > 0 && args[0].type === T_OBJECT ? args[0].value : driver.currentObject;
+    if (obj?.interactive) {
+      return mkInt(obj.interactive.zmpEnabled ? 1 : 0);
+    }
+    return SVALUE_ZERO;
+  });
+
+  reg.register('send_zmp', (args) => {
+    const cmd = args[0]?.type === T_STRING ? args[0].value : '';
+    const zmpArgs = args[1]?.type === T_ARRAY ? args[1].value.map(sv => sv.value) : [];
+    if (driver.currentObject?.interactive?.sendZmp) {
+      driver.currentObject.interactive.sendZmp(cmd, zmpArgs);
+    }
+    return SVALUE_ZERO;
+  });
+
+  reg.register('request_term_type', () => {
+    if (driver.currentObject?.interactive?.requestTermType) {
+      driver.currentObject.interactive.requestTermType();
+    }
+    return SVALUE_ZERO;
+  });
+
+  reg.register('start_request_term_type', () => {
+    if (driver.currentObject?.interactive?.requestTermType) {
+      driver.currentObject.interactive.requestTermType();
+    }
+    return SVALUE_ZERO;
+  });
+
+  reg.register('request_term_size', (args) => {
+    const flag = args.length > 0 ? args[0].value : 1;
+    if (driver.currentObject?.interactive?.requestTermSize) {
+      driver.currentObject.interactive.requestTermSize(flag);
+    }
+    return SVALUE_ZERO;
+  });
+
+  reg.register('resolve', (args) => {
+    const host = args[0]?.type === T_STRING ? args[0].value : '';
+    const callback = args[1];
+    dnsLookup(host, (err, address) => {
+      const result = err ? '' : address;
+      if (callback.type === T_FUNCTION) {
+        driver.vm._callFunctionPtr(callback.value, [mkString(host), mkString(result), mkInt(err ? 0 : 1)]);
+      } else if (callback.type === T_STRING) {
+        driver.apply(callback.value, driver.currentObject, [mkString(host), mkString(result), mkInt(err ? 0 : 1)]);
+      }
+    });
     return SVALUE_ZERO;
   });
 }
