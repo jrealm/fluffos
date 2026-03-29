@@ -247,12 +247,10 @@ export function registerInteractiveEfuns(reg, driver) {
     return SVALUE_ZERO;
   });
 
-  // shout: sends to all interactive/listener objects, excludes command_giver
+  // shout: sends to all interactive/listener objects
   reg.register('shout', (args) => {
     const msg = args[0].type === T_STRING ? args[0].value : String(args[0].value);
-    const curPlayer = driver.currentPlayer ?? driver.currentObject;
     for (const [, obj] of driver.objects.objects) {
-      if (obj === curPlayer) continue; // exclude self
       if (obj.isDestructed?.()) continue;
       if (!obj.environment) continue; // skip objects without environment
       if (isListener(obj)) {
