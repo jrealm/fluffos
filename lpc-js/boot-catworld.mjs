@@ -35,6 +35,7 @@ const config = {
   'time to reset': '1800',
   'time to clean up': '900',
   'max heart beat errors': '10',
+  'websocket port number': '6660',
 };
 
 function readFile(lpcPath) {

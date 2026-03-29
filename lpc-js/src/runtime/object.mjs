@@ -4,6 +4,7 @@ export const O_HEART_BEAT  = 0x01;
 export const O_CLONE       = 0x02;
 export const O_DESTRUCTED  = 0x04;
 export const O_RESET       = 0x08;
+export const O_VIRTUAL     = 0x10;
 
 export class LpcObject {
   constructor(filename, program) {

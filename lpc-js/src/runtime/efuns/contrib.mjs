@@ -100,43 +100,117 @@ export function registerContribEfuns(reg, driver) {
   });
 
   // Terminal colour: replace %^TAG%^ patterns using a mapping
+  // C: supports wrap (3rd arg), indent (4th arg), negative wrap = fillout mode
+  // Tracks visible vs invisible (colour code) character widths for wrapping
   reg.register('terminal_colour', (args) => {
     let str = args[0].value;
     const mapping = args[1];
     const wrap = args.length > 2 ? args[2].value : 0;
-    // Replace %^TAG%^ with mapping[TAG]
+    const indent = args.length > 3 ? args[3].value : 0;
+
+    // Replace %^TAG%^ with mapping values
+    // Keep track of which parts are "invisible" (colour codes) for wrapping
+    const segments = []; // { text, visible }
     if (mapping.type === T_MAPPING) {
-      str = str.replace(/%\^([^%]*?)%\^/g, (_, tag) => {
+      let lastEnd = 0;
+      const regex = /%\^([^%]*?)%\^/g;
+      let match;
+      while ((match = regex.exec(str)) !== null) {
+        if (match.index > lastEnd) {
+          segments.push({ text: str.slice(lastEnd, match.index), visible: true });
+        }
+        const tag = match[1];
         const key = mappingKey(mkString(tag));
         const entry = mapping.value.get(key);
-        return entry ? String(entry.value.value ?? '') : '';
-      });
+        if (entry) {
+          segments.push({ text: String(entry.value.value ?? ''), visible: false });
+        } else {
+          // Unmatched tags: keep as literal text (C behavior)
+          segments.push({ text: match[0], visible: true });
+        }
+        lastEnd = match.index + match[0].length;
+      }
+      if (lastEnd < str.length) {
+        segments.push({ text: str.slice(lastEnd), visible: true });
+      }
+      str = segments.map(s => s.text).join('');
     }
-    // Simple line wrapping
+
+    // Word-wrap if wrap > 0
     if (wrap > 0) {
+      const absWrap = Math.abs(wrap);
+      const fillout = wrap < 0;
+      const indentStr = indent > 0 ? ' '.repeat(indent) : '';
       const lines = [];
-      let pos = 0;
-      while (pos < str.length) {
-        lines.push(str.slice(pos, pos + wrap));
-        pos += wrap;
+      const words = str.split(/( +|\n)/);
+      let currentLine = '';
+      let currentVisible = 0;
+      let isFirst = true;
+
+      for (const word of words) {
+        if (word === '\n') {
+          if (fillout) currentLine = currentLine.padEnd(absWrap);
+          lines.push(currentLine);
+          currentLine = isFirst ? '' : indentStr;
+          currentVisible = isFirst ? 0 : indent;
+          isFirst = false;
+          continue;
+        }
+        if (word === '') continue;
+
+        const wordLen = word.length; // simplified: treat all chars as visible
+        if (currentVisible + wordLen > absWrap && currentLine.length > 0) {
+          if (fillout) currentLine = currentLine.padEnd(absWrap);
+          lines.push(currentLine);
+          currentLine = indentStr + word.trimStart();
+          currentVisible = indent + word.trimStart().length;
+          isFirst = false;
+        } else {
+          currentLine += word;
+          currentVisible += wordLen;
+        }
+      }
+      if (currentLine) {
+        if (fillout) currentLine = currentLine.padEnd(absWrap);
+        lines.push(currentLine);
       }
       str = lines.join('\n');
     }
+
     return mkString(str);
   });
 
   // List functions of an object
+  // C: default (flag=0) returns ALL functions (local + inherited)
+  //    flag & 1: return detailed info (arrays with name, arg count, types)
+  //    flag & 2: exclude inherited functions (only locally defined)
   reg.register('functions', (args) => {
     const obj = args[0].type === T_OBJECT ? args[0].value : null;
     if (!obj?.program) return mkArray([]);
     const flag = args.length > 1 ? args[1].value : 0;
-    const result = obj.program.functions.map(f => mkString(f.name));
-    // flag & 1: include inherited functions (recursively)
-    if (flag & 1) {
+    const detailed = !!(flag & 1);
+    const excludeInherited = !!(flag & 2);
+    const result = [];
+
+    // Local functions
+    for (const f of obj.program.functions) {
+      if (detailed) {
+        result.push(mkArray([mkString(f.name), mkInt(f.numArgs ?? 0)]));
+      } else {
+        result.push(mkString(f.name));
+      }
+    }
+
+    // Inherited functions (unless flag & 2)
+    if (!excludeInherited) {
       function collectInherited(program) {
-        for (const inh of program.inherits) {
+        for (const inh of (program.inherits ?? [])) {
           for (const f of inh.program.functions) {
-            result.push(mkString(f.name));
+            if (detailed) {
+              result.push(mkArray([mkString(f.name), mkInt(f.numArgs ?? 0)]));
+            } else {
+              result.push(mkString(f.name));
+            }
           }
           collectInherited(inh.program);
         }
@@ -147,10 +221,26 @@ export function registerContribEfuns(reg, driver) {
   });
 
   // List variables of an object
+  // C: recursively walks inheritance tree; flag != 0 returns detailed info
   reg.register('variables', (args) => {
     const obj = args[0].type === T_OBJECT ? args[0].value : null;
     if (!obj?.program) return mkArray([]);
-    const result = obj.program.variables.map(v => mkString(v.name));
+    const flag = args.length > 1 ? args[1].value : 0;
+    const result = [];
+
+    function collectVars(program) {
+      for (const v of program.variables) {
+        if (flag) {
+          result.push(mkArray([mkString(v.name), mkString(v.typeName ?? 'mixed')]));
+        } else {
+          result.push(mkString(v.name));
+        }
+      }
+      for (const inh of (program.inherits ?? [])) {
+        collectVars(inh.program);
+      }
+    }
+    collectVars(obj.program);
     return mkArray(result);
   });
 

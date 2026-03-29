@@ -4,46 +4,61 @@ function toNum(sv) {
   return Number(sv.value ?? 0);
 }
 
-function mkNum(v, forceFloat) {
-  if (forceFloat || !Number.isInteger(v)) return mkFloat(v);
-  return mkInt(v);
-}
-
 export function registerMathEfuns(reg) {
-  // Trigonometry
+  // Trigonometry — all return float
   reg.register('sin', (args) => mkFloat(Math.sin(toNum(args[0]))));
   reg.register('cos', (args) => mkFloat(Math.cos(toNum(args[0]))));
   reg.register('tan', (args) => mkFloat(Math.tan(toNum(args[0]))));
-  reg.register('asin', (args) => mkFloat(Math.asin(toNum(args[0]))));
-  reg.register('acos', (args) => mkFloat(Math.acos(toNum(args[0]))));
+
+  // asin/acos: domain validation — error if |x| > 1
+  reg.register('asin', (args) => {
+    const v = toNum(args[0]);
+    if (v < -1.0 || v > 1.0) throw new Error('Bad argument 1 to math->asin()');
+    return mkFloat(Math.asin(v));
+  });
+  reg.register('acos', (args) => {
+    const v = toNum(args[0]);
+    if (v < -1.0 || v > 1.0) throw new Error('Bad argument 1 to math->acos()');
+    return mkFloat(Math.acos(v));
+  });
   reg.register('atan', (args) => mkFloat(Math.atan(toNum(args[0]))));
 
-  // Powers and roots
+  // sqrt: always returns float (C spec), error if negative
   reg.register('sqrt', (args) => {
     const v = toNum(args[0]);
-    return args[0].type === T_INT ? mkInt(Math.floor(Math.sqrt(v))) : mkFloat(Math.sqrt(v));
+    if (v < 0) throw new Error('Bad argument 1 to math->sqrt()');
+    return mkFloat(Math.sqrt(v));
   });
 
+  // pow: always returns float (C spec)
   reg.register('pow', (args) => {
     const base = toNum(args[0]);
     const exp = toNum(args[1]);
-    const result = Math.pow(base, exp);
-    if (args[0].type === T_INT && args[1].type === T_INT && Number.isInteger(result)) {
-      return mkInt(result);
-    }
-    return mkFloat(result);
+    return mkFloat(Math.pow(base, exp));
   });
 
-  // Logarithms
-  reg.register('log', (args) => mkFloat(Math.log(toNum(args[0]))));
-  reg.register('log10', (args) => mkFloat(Math.log10(toNum(args[0]))));
-  reg.register('log2', (args) => mkFloat(Math.log2(toNum(args[0]))));
+  // log: error if x <= 0
+  reg.register('log', (args) => {
+    const v = toNum(args[0]);
+    if (v <= 0) throw new Error('Bad argument 1 to math->log()');
+    return mkFloat(Math.log(v));
+  });
+  reg.register('log10', (args) => {
+    const v = toNum(args[0]);
+    if (v <= 0) throw new Error('Bad argument 1 to math->log10()');
+    return mkFloat(Math.log10(v));
+  });
+  reg.register('log2', (args) => {
+    const v = toNum(args[0]);
+    if (v <= 0) throw new Error('Bad argument 1 to math->log2()');
+    return mkFloat(Math.log2(v));
+  });
   reg.register('exp', (args) => mkFloat(Math.exp(toNum(args[0]))));
 
-  // Rounding
-  reg.register('floor', (args) => mkInt(Math.floor(toNum(args[0]))));
-  reg.register('ceil', (args) => mkInt(Math.ceil(toNum(args[0]))));
-  reg.register('round', (args) => mkInt(Math.round(toNum(args[0]))));
+  // Rounding — C returns float
+  reg.register('floor', (args) => mkFloat(Math.floor(toNum(args[0]))));
+  reg.register('ceil', (args) => mkFloat(Math.ceil(toNum(args[0]))));
+  reg.register('round', (args) => mkFloat(Math.round(toNum(args[0]))));
 
   // Vector operations
   reg.register('norm', (args) => {
@@ -53,30 +68,38 @@ export function registerMathEfuns(reg) {
     return mkFloat(Math.sqrt(sum));
   });
 
+  // dotprod: error on mismatched vector sizes (C behavior)
   reg.register('dotprod', (args) => {
     if (args[0].type !== T_ARRAY || args[1].type !== T_ARRAY) return SVALUE_ZERO;
     const a = args[0].value, b = args[1].value;
-    const len = Math.min(a.length, b.length);
+    if (a.length !== b.length) {
+      throw new Error('cannot take the dotprod of vectors of different sizes');
+    }
     let sum = 0;
-    for (let i = 0; i < len; i++) sum += toNum(a[i]) * toNum(b[i]);
+    for (let i = 0; i < a.length; i++) sum += toNum(a[i]) * toNum(b[i]);
     return mkFloat(sum);
   });
 
+  // distance: error on mismatched vector sizes
   reg.register('distance', (args) => {
     if (args[0].type !== T_ARRAY || args[1].type !== T_ARRAY) return SVALUE_ZERO;
     const a = args[0].value, b = args[1].value;
-    const len = Math.min(a.length, b.length);
+    if (a.length !== b.length) {
+      throw new Error('cannot take the distance of vectors of different sizes');
+    }
     let sum = 0;
-    for (let i = 0; i < len; i++) sum += (toNum(a[i]) - toNum(b[i])) ** 2;
+    for (let i = 0; i < a.length; i++) sum += (toNum(a[i]) - toNum(b[i])) ** 2;
     return mkFloat(Math.sqrt(sum));
   });
 
   reg.register('angle', (args) => {
     if (args[0].type !== T_ARRAY || args[1].type !== T_ARRAY) return SVALUE_ZERO;
     const a = args[0].value, b = args[1].value;
-    const len = Math.min(a.length, b.length);
+    if (a.length !== b.length) {
+      throw new Error('cannot take the angle of vectors of different sizes');
+    }
     let dot = 0, na = 0, nb = 0;
-    for (let i = 0; i < len; i++) {
+    for (let i = 0; i < a.length; i++) {
       const av = toNum(a[i]), bv = toNum(b[i]);
       dot += av * bv;
       na += av * av;

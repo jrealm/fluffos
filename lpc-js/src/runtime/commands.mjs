@@ -59,7 +59,7 @@ export class CommandManager {
     for (const obj of searchList) {
       for (const action of this.getActions(obj)) {
         if (this.matchVerb(verb, action)) {
-          const handled = handler(action.func, obj, arg);
+          const handled = handler(action.func, obj, arg, verb);
           if (handled) return true;
         }
       }

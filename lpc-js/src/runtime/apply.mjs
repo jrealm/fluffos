@@ -41,7 +41,7 @@ function lookupFunction(program, funcName) {
   // Check inherited
   const inherited = program.findInheritedFunction(funcName);
   if (inherited) {
-    const result = { fn: inherited.fn, program: inherited.program };
+    const result = { fn: inherited.fn, program: inherited.program, varOffset: inherited.varOffset ?? 0 };
     cache.set(funcName, result);
     return result;
   }
@@ -80,6 +80,8 @@ export function apply(funcName, object, args) {
 
   vm.currentProgram = found.program;
   vm.globals = object.variables;
+  const savedOffset = vm._globalOffset;
+  vm._globalOffset = found.varOffset ?? 0;
 
   let result;
   try {
@@ -88,8 +90,9 @@ export function apply(funcName, object, args) {
     object.variables = vm.globals;
     vm.currentProgram = savedProgram;
     vm.globals = savedGlobals;
+    vm._globalOffset = savedOffset;
     if (_applyHook) _applyHook.after(savedHookState);
   }
 
-  return result;
+  return result ?? SVALUE_ZERO;
 }

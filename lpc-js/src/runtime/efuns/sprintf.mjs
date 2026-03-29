@@ -188,7 +188,8 @@ function padString(str, spec) {
   const padStr = spec.padChar.repeat(Math.ceil(pad / spec.padChar.length)).slice(0, pad);
 
   if (spec.center) {
-    const left = Math.floor(pad / 2);
+    // C: extra space goes to the left (fs/2 + fs%2)
+    const left = Math.ceil(pad / 2);
     const right = pad - left;
     const lp = spec.padChar.repeat(Math.ceil(left / spec.padChar.length)).slice(0, left);
     const rp = spec.padChar.repeat(Math.ceil(right / spec.padChar.length)).slice(0, right);
@@ -204,11 +205,13 @@ function padString(str, spec) {
 }
 
 function formatColumn(text, width) {
+  // Word-wrap text to fit within column width, pad each line
   const words = text.split(/\s+/);
   const lines = [];
   let currentLine = '';
 
   for (const word of words) {
+    if (!word) continue;
     if (currentLine === '') {
       currentLine = word;
     } else if (currentLine.length + 1 + word.length <= width) {
@@ -224,28 +227,26 @@ function formatColumn(text, width) {
 }
 
 function formatTable(text, width, numCols) {
-  const items = text.split(/[\s\n]+/).filter(Boolean);
+  // C splits on \n only, not whitespace
+  const items = text.split('\n').filter(Boolean);
   if (items.length === 0) return '';
 
-  if (numCols <= 0) {
-    // Auto-calculate: find widest item, fit as many columns as possible
-    const maxItemWidth = Math.max(...items.map(s => s.length));
-    numCols = Math.max(1, Math.floor(width / (maxItemWidth + 2)));
-  }
+  const maxItemWidth = Math.max(...items.map(s => s.length));
 
-  // Adjust columns so last row is full (or close)
-  while (numCols > 1 && items.length % numCols !== 0 && items.length < numCols) {
-    numCols--;
+  if (numCols <= 0) {
+    // Auto-calculate: fit as many columns as possible
+    numCols = Math.max(1, Math.floor(width / (maxItemWidth + 2)));
   }
 
   const colWidth = Math.floor(width / numCols);
   const rows = Math.ceil(items.length / numCols);
   const lines = [];
 
+  // C uses column-major layout: items fill down each column first
   for (let r = 0; r < rows; r++) {
     let line = '';
     for (let c = 0; c < numCols; c++) {
-      const idx = r * numCols + c;
+      const idx = c * rows + r; // column-major indexing
       if (idx < items.length) {
         const item = items[idx];
         line += c < numCols - 1 ? item.padEnd(colWidth) : item;
@@ -263,23 +264,33 @@ function svalueToString(sv, indent) {
 
   switch (sv.type) {
     case T_INT: return String(sv.value);
-    case T_FLOAT: return String(sv.value);
-    case T_STRING: return '"' + sv.value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n') + '"';
+    case T_FLOAT: return sv.value.toFixed(6); // C uses %f = 6 decimal places
+    case T_STRING: return '"' + sv.value + '"'; // C does not escape special chars in %O
     case T_ARRAY: {
       if (sv.value.length === 0) return '({ })';
-      const items = sv.value.map(v => pad + '  ' + svalueToString(v, indent + 2) + ',\n');
+      const items = sv.value.map((v, i) => {
+        const trailing = i < sv.value.length - 1 ? ',' : '';
+        return pad + '  ' + svalueToString(v, indent + 2) + trailing + '\n';
+      });
       return `({ /* sizeof() == ${sv.value.length} */\n${items.join('')}${pad}})`;
     }
     case T_MAPPING: {
       if (sv.value.size === 0) return '([ ])';
       const entries = [];
-      for (const [, entry] of sv.value) {
+      const arr = [...sv.value.values()];
+      for (let i = 0; i < arr.length; i++) {
+        const entry = arr[i];
         const kStr = svalueToString(entry.key, indent + 2);
-        entries.push(`${pad}  ${kStr} : ${svalueToString(entry.value, indent + 2)},\n`);
+        const trailing = i < arr.length - 1 ? ',' : '';
+        entries.push(`${pad}  ${kStr} : ${svalueToString(entry.value, indent + 2)}${trailing}\n`);
       }
       return `([ /* sizeof() == ${sv.value.size} */\n${entries.join('')}${pad}])`;
     }
-    case T_OBJECT: return sv.value?.objectId ?? '(destructed)';
+    case T_OBJECT: {
+      if (!sv.value) return '(destructed)';
+      const id = sv.value.objectId ?? '';
+      return id.startsWith('/') ? id : '/' + id;
+    }
     case T_FUNCTION: return '(: <function> :)';
     case T_BUFFER: return '<buffer>';
     case T_CLASS: {

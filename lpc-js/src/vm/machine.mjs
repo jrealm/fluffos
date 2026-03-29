@@ -5,6 +5,29 @@ import {
   SVALUE_ZERO, SVALUE_ONE, isTruthy, mappingKey
 } from './svalue.mjs';
 
+// LPC value equality: arrays/mappings compare by content, not reference
+function svalueEqual(a, b) {
+  if (a.type !== b.type) return false;
+  if (a.type === T_ARRAY) {
+    if (a.value === b.value) return true;
+    if (a.value.length !== b.value.length) return false;
+    for (let i = 0; i < a.value.length; i++) {
+      if (!svalueEqual(a.value[i], b.value[i])) return false;
+    }
+    return true;
+  }
+  if (a.type === T_MAPPING) {
+    if (a.value === b.value) return true;
+    if (a.value.size !== b.value.size) return false;
+    for (const [k, v] of a.value) {
+      if (!b.value.has(k)) return false;
+      if (!svalueEqual(v.value, b.value.get(k).value)) return false;
+    }
+    return true;
+  }
+  return a.value === b.value;
+}
+
 export class RuntimeError extends Error {
   constructor(message) {
     super(message);
@@ -249,14 +272,14 @@ export class Machine {
         case OP.EQ: {
           const b = this.stack.pop();
           const a = this.stack.pop();
-          this.stack.push(a.value === b.value ? SVALUE_ONE : SVALUE_ZERO);
+          this.stack.push(svalueEqual(a, b) ? SVALUE_ONE : SVALUE_ZERO);
           break;
         }
 
         case OP.NE: {
           const b = this.stack.pop();
           const a = this.stack.pop();
-          this.stack.push(a.value !== b.value ? SVALUE_ONE : SVALUE_ZERO);
+          this.stack.push(!svalueEqual(a, b) ? SVALUE_ONE : SVALUE_ZERO);
           break;
         }
 

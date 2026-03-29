@@ -25,8 +25,10 @@ export class ObjectManager {
 
     if (this.onObjectCreated) this.onObjectCreated(obj);
     // Call __INIT to initialize global variables with non-zero values
-    apply('__INIT', obj, []);
-    apply('create', obj, []);
+    try { apply('__INIT', obj, []); } catch {}
+    try { apply('create', obj, []); } catch (e) {
+      if (this.onCreateError) this.onCreateError(obj, e);
+    }
 
     return obj;
   }
@@ -39,8 +41,10 @@ export class ObjectManager {
     this.objects.set(cloneId, clone);
 
     if (this.onObjectCreated) this.onObjectCreated(clone);
-    apply('__INIT', clone, []);
-    apply('create', clone, []);
+    try { apply('__INIT', clone, []); } catch {}
+    try { apply('create', clone, []); } catch (e) {
+      if (this.onCreateError) this.onCreateError(clone, e);
+    }
 
     return clone;
   }
@@ -84,10 +88,15 @@ export class ObjectManager {
       let ppSource;
       try { ppSource = preprocess(source, ppOpts).source; } catch { ppSource = source; }
 
-      const inheritPattern = /inherit\s+"([^"]+)"\s*;/g;
+      // Match inherit with adjacent string concatenation: inherit "a""b""c";
+      const inheritPattern = /inherit\s+((?:"[^"]*"\s*)+)\s*;/g;
       let match;
       while ((match = inheritPattern.exec(ppSource)) !== null) {
-        let path = match[1];
+        // Concatenate adjacent strings: "a""b" → "ab"
+        let path = '';
+        const strPattern = /"([^"]*)"/g;
+        let sm;
+        while ((sm = strPattern.exec(match[1])) !== null) path += sm[1];
         if (!path.endsWith('.c')) path += '.c';
         collectFile(path);
       }

@@ -38,6 +38,9 @@ export function mkFunction(value) {
 
 export const SVALUE_ZERO = Object.freeze(mkInt(0));
 export const SVALUE_ONE = Object.freeze(mkInt(1));
+// UNDEFINED: type T_INT, value 0, but with subtype marker
+// In FluffOS C, undefined is (type=T_NUMBER, value=0, subtype=T_UNDEFINED)
+export const SVALUE_UNDEFINED = Object.freeze({ type: T_INT, value: 0, subtype: 'undefined' });
 
 // Composite key for mappings to distinguish int 1 from float 1.0
 export function mappingKey(sv) {
