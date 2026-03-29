@@ -53,6 +53,7 @@ export function registerFileEfuns(reg, mudlibDir, driver = null) {
       if (end < lines.length || content.endsWith('\n')) result += '\n';
       return mkString(result);
     } catch (e) {
+      if (e instanceof RuntimeError) throw e;
       return SVALUE_ZERO;
     }
   });
@@ -75,6 +76,7 @@ export function registerFileEfuns(reg, mudlibDir, driver = null) {
       }
       return mkInt(1);
     } catch (e) {
+      if (e instanceof RuntimeError) throw e;
       return SVALUE_ZERO;
     }
   });
@@ -86,6 +88,7 @@ export function registerFileEfuns(reg, mudlibDir, driver = null) {
       if (stat.isDirectory()) return mkInt(-2);
       return mkInt(stat.size);
     } catch (e) {
+      if (e instanceof RuntimeError) throw e;
       return mkInt(-1);
     }
   });
@@ -96,6 +99,7 @@ export function registerFileEfuns(reg, mudlibDir, driver = null) {
       fs.mkdirSync(resolve(lpcPath));
       return mkInt(1);
     } catch (e) {
+      if (e instanceof RuntimeError) throw e;
       return SVALUE_ZERO;
     }
   });
@@ -106,6 +110,7 @@ export function registerFileEfuns(reg, mudlibDir, driver = null) {
       fs.unlinkSync(resolve(lpcPath));
       return mkInt(1);
     } catch (e) {
+      if (e instanceof RuntimeError) throw e;
       return SVALUE_ZERO;
     }
   });
@@ -170,6 +175,7 @@ export function registerFileEfuns(reg, mudlibDir, driver = null) {
         mkInt(0), // load_time (LPC object load time — not applicable in JS)
       ]);
     } catch (e) {
+      if (e instanceof RuntimeError) throw e;
       return SVALUE_ZERO;
     }
   });
@@ -195,6 +201,7 @@ export function registerFileEfuns(reg, mudlibDir, driver = null) {
       fs.closeSync(fd);
       return mkString(buf.toString('utf8'));
     } catch (e) {
+      if (e instanceof RuntimeError) throw e;
       return SVALUE_ZERO;
     }
   });
@@ -227,6 +234,7 @@ export function registerFileEfuns(reg, mudlibDir, driver = null) {
       fs.closeSync(fd);
       return mkInt(1);
     } catch (e) {
+      if (e instanceof RuntimeError) throw e;
       return SVALUE_ZERO;
     }
   });
@@ -238,6 +246,7 @@ export function registerFileEfuns(reg, mudlibDir, driver = null) {
       fs.copyFileSync(resolve(srcPath), resolve(dstPath));
       return mkInt(0); // success
     } catch (e) {
+      if (e instanceof RuntimeError) throw e;
       return mkInt(1); // C returns 1 on failure
     }
   });
@@ -249,6 +258,7 @@ export function registerFileEfuns(reg, mudlibDir, driver = null) {
       fs.renameSync(resolve(srcPath), resolve(dstPath));
       return mkInt(0); // success
     } catch (e) {
+      if (e instanceof RuntimeError) throw e;
       return mkInt(1); // C returns 1 on failure
     }
   });
@@ -259,6 +269,7 @@ export function registerFileEfuns(reg, mudlibDir, driver = null) {
       fs.rmdirSync(resolve(lpcPath));
       return mkInt(1);
     } catch (e) {
+      if (e instanceof RuntimeError) throw e;
       return SVALUE_ZERO;
     }
   });
@@ -270,6 +281,7 @@ export function registerFileEfuns(reg, mudlibDir, driver = null) {
       fs.linkSync(resolve(srcPath), resolve(dstPath));
       return mkInt(0);
     } catch (e) {
+      if (e instanceof RuntimeError) throw e;
       return mkInt(-1);
     }
   });
