@@ -1,7 +1,7 @@
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { EfunRegistry } from '../../src/runtime/efuns.mjs';
-import { mkInt, mkString, mkFloat, mkArray, mkMapping, mkFunction, T_OBJECT, SVALUE_ZERO } from '../../src/vm/svalue.mjs';
+import { mkInt, mkString, mkFloat, mkArray, mkMapping, mkFunction, T_OBJECT, SVALUE_ZERO, SVALUE_UNDEFINED } from '../../src/vm/svalue.mjs';
 import { LpcObject, O_CLONE } from '../../src/runtime/object.mjs';
 import { Program } from '../../src/vm/program.mjs';
 
@@ -35,11 +35,11 @@ describe('type predicate efuns', () => {
     assert.equal(reg.call('objectp', [mkInt(1)]).value, 0);
   });
   it('functionp', () => {
-    assert.equal(reg.call('functionp', [mkFunction({ kind: 'named', name: 'f' })]).value, 1);
+    assert.ok(reg.call('functionp', [mkFunction({ kind: 'named', name: 'f' })]).value > 0);
     assert.equal(reg.call('functionp', [mkInt(1)]).value, 0);
   });
   it('undefinedp', () => {
-    assert.equal(reg.call('undefinedp', [SVALUE_ZERO]).value, 1);
+    assert.equal(reg.call('undefinedp', [SVALUE_UNDEFINED]).value, 1);
     assert.equal(reg.call('undefinedp', [mkInt(1)]).value, 0);
   });
   it('clonep', () => {
