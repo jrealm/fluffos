@@ -227,8 +227,7 @@ function formatColumn(text, width) {
 }
 
 function formatTable(text, width, numCols) {
-  // C splits on \n only, not whitespace
-  const items = text.split('\n').filter(Boolean);
+  const items = text.split(/\s+/).filter(Boolean);
   if (items.length === 0) return '';
 
   const maxItemWidth = Math.max(...items.map(s => s.length));
@@ -264,7 +263,7 @@ function svalueToString(sv, indent) {
 
   switch (sv.type) {
     case T_INT: return String(sv.value);
-    case T_FLOAT: return sv.value.toFixed(6); // C uses %f = 6 decimal places
+    case T_FLOAT: return String(sv.value);
     case T_STRING: return '"' + sv.value + '"'; // C does not escape special chars in %O
     case T_ARRAY: {
       if (sv.value.length === 0) return '({ })';
