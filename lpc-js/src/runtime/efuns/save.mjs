@@ -1,4 +1,7 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { mkInt, mkString, mkFloat, mkArray, mkMapping, T_INT, T_STRING, T_FLOAT, T_ARRAY, T_MAPPING, SVALUE_ZERO, mappingKey } from '../../vm/svalue.mjs';
+import { RuntimeError } from '../../vm/machine.mjs';
 
 // Serialize an object's variables to FluffOS save format
 // C: writes "#/path/to/object.c\n" header, skips NOSAVE/static vars, skips zero-valued vars
@@ -202,11 +205,31 @@ export function registerSaveEfuns(reg, driver) {
     if (!savePath.endsWith('.o')) savePath += '.o';
     const saveZeros = args.length > 1 ? !!args[1]?.value : false;
     const text = serializeObject(driver.currentObject, saveZeros);
-    const writeFile = driver.efuns.registry.get('write_file');
-    const rm = driver.efuns.registry.get('rm');
-    if (writeFile) {
-      try { if (rm) rm([mkString(savePath)]); } catch {}
-      writeFile([mkString(savePath), mkString(text)]);
+
+    // Use 'save_object' as the func name so that security daemons (e.g. securityd)
+    // can grant write permission via a dedicated save_object branch rather than
+    // treating this as a generic write_file call.
+    try {
+      const checkedPath = driver.checkFileAccess('write', savePath, 'save_object');
+      if (checkedPath === null) return SVALUE_ZERO;
+      const actualPath = typeof checkedPath === 'string' ? checkedPath : savePath;
+
+      // Resolve against mudlib directory and write directly (bypass write_file efun)
+      const mudlibDir = driver.config['mudlib directory'] ?? '/';
+      const normalizedBase = path.resolve(mudlibDir);
+      const relPath = actualPath.startsWith('/') ? actualPath.slice(1) : actualPath;
+      const fullPath = path.resolve(mudlibDir, relPath);
+      if (!fullPath.startsWith(normalizedBase + path.sep) && fullPath !== normalizedBase) {
+        return SVALUE_ZERO; // path traversal denied
+      }
+      const dir = path.dirname(fullPath);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      // Remove old save file then write new one (matches original rm+writeFile behavior)
+      try { fs.unlinkSync(fullPath); } catch {}
+      fs.writeFileSync(fullPath, text);
+    } catch (e) {
+      if (e instanceof RuntimeError) return SVALUE_ZERO;
+      return SVALUE_ZERO;
     }
     return mkInt(1);
   });

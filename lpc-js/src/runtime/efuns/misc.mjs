@@ -209,7 +209,11 @@ export function registerMiscEfuns(reg) {
       target.type = results[i].type;
       target.value = results[i].value;
     }
-    return mkArray(results);
+    // FluffOS LPC semantics: sscanf returns the number of items matched (including
+    // suppressed %* patterns), matching FluffOS C behavior where matchCount includes
+    // suppressed matches. This allows if(sscanf(str, "prefix%*s")) to test for prefix match.
+    // Write-back of output variables is handled above via args[2+] mutation.
+    return mkInt(matchCount);
   });
 
   reg.register('allocate_mapping', () => {

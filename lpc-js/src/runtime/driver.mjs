@@ -65,8 +65,10 @@ export class Driver {
           try {
             obj = this.objects.load(path);
           } catch (e) {
+            // In FluffOS, call_other with a non-existent or compile-error object returns 0 silently.
+            // Throwing here would propagate as a runtime error to the player — avoid that.
             console.error(`[call_other] Failed to load ${path}: ${e.message.slice(0, 150)}`);
-            throw e;
+            return SVALUE_ZERO;
           }
         }
       } else {
@@ -122,26 +124,31 @@ export class Driver {
       }
     };
 
-    // Set UIDs on newly created objects — match CatWorld's creator_file() logic
+    // Set UIDs on newly created objects — use creator_file() if master provides it,
+    // otherwise fall back to first-path-component semantics (FluffOS default).
     this.objects.onObjectCreated = (obj) => {
+      // First-path-component fallback (used when master not yet loaded or no creator_file)
       const parts = obj.filename.split('/').filter(Boolean);
       const dir = parts.length > 0 ? parts[0] : '';
       let uid;
-      switch (dir) {
-        case 'adm': case 'cmds': case 'daemon': case 'std':
-        case 'obj': case 'feature': case 'include':
-          uid = 'Root';
-          break;
-        case 'u':
-          uid = parts.length >= 3 ? parts[2] : 'Root';
-          break;
-        case 'd': case 'open': case 'ftp':
-          uid = parts.length >= 2 ? parts[1] : 'Root';
-          break;
-        default:
-          uid = 'Root';
-          break;
+      if (dir === 'u' && parts.length >= 3) {
+        uid = parts[2];
+      } else {
+        uid = dir || 'Root';
       }
+
+      // If master is loaded and has creator_file, delegate to it (e.g. CatWorld maps /adm/ → Root)
+      if (this.master && !this.master.isDestructed()) {
+        try {
+          const result = apply('creator_file', this.master, [mkString(obj.filename)]);
+          if (result && result.type === T_STRING && result.value) {
+            uid = result.value;
+          }
+        } catch {
+          // If creator_file fails (not defined, circular load, etc.) keep first-path-component uid
+        }
+      }
+
       obj.uid = uid;
       obj.euid = uid;
     };
@@ -269,7 +276,10 @@ export class Driver {
     });
 
     this.efuns.register('find_object', (args) => {
-      const obj = driver.objects.find(args[0].value);
+      // Try exact path first, then with .c extension (FluffOS convention)
+      const path = args[0].value;
+      const obj = driver.objects.find(path)
+               ?? driver.objects.find(path.endsWith('.c') ? path : path + '.c');
       if (obj) return { type: T_OBJECT, value: obj };
       return SVALUE_ZERO;
     });
