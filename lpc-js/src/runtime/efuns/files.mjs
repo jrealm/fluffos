@@ -247,7 +247,8 @@ export function registerFileEfuns(reg, mudlibDir, driver = null) {
       return mkInt(0); // success
     } catch (e) {
       if (e instanceof RuntimeError) throw e;
-      return mkInt(1); // C returns 1 on failure
+      if (e.code === 'ENOENT') return mkInt(-1); // C returns -1 for missing source
+      return mkInt(1); // C returns 1 for other errors
     }
   });
 
@@ -259,7 +260,8 @@ export function registerFileEfuns(reg, mudlibDir, driver = null) {
       return mkInt(0); // success
     } catch (e) {
       if (e instanceof RuntimeError) throw e;
-      return mkInt(1); // C returns 1 on failure
+      if (e.code === 'ENOENT') return mkInt(-1); // C returns -1 for missing source
+      return mkInt(1); // C returns 1 for other errors
     }
   });
 
