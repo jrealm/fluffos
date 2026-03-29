@@ -209,7 +209,7 @@ export function registerMiscEfuns(reg) {
       target.type = results[i].type;
       target.value = results[i].value;
     }
-    return mkInt(matchCount);
+    return mkArray(results);
   });
 
   reg.register('allocate_mapping', () => {
