@@ -48,18 +48,12 @@ export function registerMappingEfuns(reg) {
     for (let i = 0; i < path.length; i++) {
       sub += path[i];
       if (path[i] === '/' || i === path.length - 1) {
-        // Look up this substring in the mapping (with and without trailing /)
-        const key1 = mappingKey({ type: T_STRING, value: sub });
-        if (mapping.has(key1)) {
-          bestValue = mapping.get(key1).value;
-        }
-        // Also try with trailing '/' added (C builds substrings ending in '/')
-        if (!sub.endsWith('/')) {
-          const key2 = mappingKey({ type: T_STRING, value: sub + '/' });
-          if (mapping.has(key2)) {
-            bestValue = mapping.get(key2).value;
-          }
-        }
+        // At a '/' boundary, sub ends with '/' — check both with and without
+        const bare = sub.endsWith('/') && sub.length > 1 ? sub.slice(0, -1) : sub;
+        const key1 = mappingKey({ type: T_STRING, value: bare });
+        if (mapping.has(key1)) bestValue = mapping.get(key1).value;
+        const key2 = mappingKey({ type: T_STRING, value: bare + '/' });
+        if (mapping.has(key2)) bestValue = mapping.get(key2).value;
       }
     }
     return bestValue ?? SVALUE_ZERO;
