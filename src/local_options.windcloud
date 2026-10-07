@@ -883,6 +883,8 @@
 /*PACKAGE_CRYPTO: adds a function that does multiple hash types hash(hash, string), needs openssl lib and includes and -lssl in system_libs*/
 #define PACKAGE_CRYPTO
 
+#undef PACKAGE_PCRE
+
 /* PROG_REF_TYPE size of program ref counter:
  * char for 8 bit, short for 16, int for 32,
  * long long for 64 (completely useless on 32 bit machines though!) */
@@ -915,4 +917,16 @@
 
 /* use POSIX timers for eval_cost */
 #undef POSIX_TIMERS
+
+/* options added in newer options.h (defaults copied from options.h) */
+#undef PACKAGE_DSLIB
+#undef BSDMALLOC
+#undef SMALLOC
+#define PARSE_DEBUG
+#define FLUFFOS
+#undef BINARIES
+#undef ALLOW_INHERIT_AFTER_GLOBAL_VARIABLES
+#define ANSI_SUBSTITUTE 0x1e
+#undef LPC_TO_C
+#undef DROP_CORE
 #endif

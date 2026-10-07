@@ -916,4 +916,16 @@
 
 /* use POSIX timers for eval_cost */
 #undef POSIX_TIMERS
+
+/* options added in newer options.h (defaults copied from options.h) */
+#undef PACKAGE_DSLIB
+#undef BSDMALLOC
+#undef SMALLOC
+#define PARSE_DEBUG
+#define FLUFFOS
+#undef BINARIES
+#undef ALLOW_INHERIT_AFTER_GLOBAL_VARIABLES
+#define ANSI_SUBSTITUTE 0x1e
+#undef LPC_TO_C
+#undef DROP_CORE
 #endif
