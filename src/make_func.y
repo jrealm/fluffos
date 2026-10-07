@@ -62,11 +62,13 @@ struct type {
     const char *string;
 }
 
-%token ID NUM DEFAULT OPERATOR
+%token <string> ID
+%token <number> NUM
+%token DEFAULT OPERATOR
 
-%type <number> type arg_list basic typel arg_type typel2 NUM
+%type <number> type arg_list basic typel arg_type typel2
 
-%type <string> ID optional_ID optional_default
+%type <string> optional_ID optional_default
 
 %%
 

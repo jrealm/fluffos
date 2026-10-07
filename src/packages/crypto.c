@@ -3,32 +3,17 @@
  * 
  * Utilises the OpenSSL crypto library to provide various message digest hashes
  * via a hash() efun.  It works in almost the same manner as the hash function
- * from php, and provides md2, md4, md5, mdc2, sha1 and ripemd160 hashes.  You
- * must link against the ssl link library (add -lssl to system_libs).
+ * from php, and provides md5, sha1, sha224, sha256, sha384, sha512 and
+ * ripemd160 hashes.  You must link against the ssl link library (add -lssl to
+ * system_libs).
+ *
+ * md2, md4 and mdc2 were dropped when moving to the OpenSSL 3 EVP API: they
+ * live in the legacy provider, which is not loaded by default.
  *
  * -- coded by Ajandurah@Demonslair (Mark Lyndoe) 10/03/09
  */
 
-#include <openssl/opensslconf.h>
-
-#ifndef OPENSSL_NO_SHA
-#include <openssl/sha.h>
-#endif
-#ifndef OPENSSL_NO_MD5
-#include <openssl/md5.h>
-#endif
-#ifndef OPENSSL_NO_MD2
-#include <openssl/md2.h>
-#endif
-#ifndef OPENSSL_NO_MD4
-#include <openssl/md4.h>
-#endif
-#ifndef OPENSSL_NO_MDC2
-#include <openssl/mdc2.h>
-#endif
-#ifndef OPENSSL_NO_RIPEMD160
-#include <openssl/ripemd.h>
-#endif
+#include <openssl/evp.h>
 
 #ifdef LATTICE
 #include "/lpc_incl.h"
@@ -65,47 +50,31 @@ void f_hash(void)
    data = sp->u.string;
    data_len = SVALUE_STRLEN(sp);
 
-#define DO_HASH_IF(id, func, hash_size) SAFE( \
-   if (strcasecmp(algo, id) == 0) { \
-      unsigned char md[hash_size]; \
-      func((unsigned char *) data, data_len, md); \
-      result = hexdump(md, hash_size); \
-   } \
-)
+   static const struct {
+      const char *id;
+      const EVP_MD *(*md)(void);
+   } algos[] = {
+      { "sha1",      EVP_sha1 },
+      { "md5",       EVP_md5 },
+      { "sha256",    EVP_sha256 },
+      { "sha224",    EVP_sha224 },
+      { "sha512",    EVP_sha512 },
+      { "sha384",    EVP_sha384 },
+      { "ripemd160", EVP_ripemd160 },
+   };
+   int i;
 
-#ifndef OPENSSL_NO_SHA1
-   DO_HASH_IF("sha1", SHA1, SHA_DIGEST_LENGTH);
-#endif
+   for (i = 0; i < sizeof(algos) / sizeof(algos[0]); i++) {
+      if (strcasecmp(algo, algos[i].id) == 0) {
+         unsigned char md[EVP_MAX_MD_SIZE];
+         unsigned int md_len;
 
-#ifndef OPENSSL_NO_MD5
-   DO_HASH_IF("md5", MD5, MD5_DIGEST_LENGTH);
-#endif
-   
-#ifndef OPENSSL_NO_SHA256
-   DO_HASH_IF("sha256", SHA256, SHA256_DIGEST_LENGTH);
-   DO_HASH_IF("sha224", SHA224, SHA224_DIGEST_LENGTH);
-#endif
-   
-#ifndef OPENSSL_NO_SHA512
-   DO_HASH_IF("sha512", SHA512, SHA512_DIGEST_LENGTH);
-   DO_HASH_IF("sha384", SHA384, SHA384_DIGEST_LENGTH);
-#endif
-   
-#ifndef OPENSSL_NO_MD2
-   DO_HASH_IF("md2", MD2, MD2_DIGEST_LENGTH);
-#endif
-   
-#ifndef OPENSSL_NO_MD4
-   DO_HASH_IF("md4", MD4, MD4_DIGEST_LENGTH);
-#endif
-
-#ifndef OPENSSL_NO_MDC2
-   DO_HASH_IF("mdc2", MDC2, MDC2_DIGEST_LENGTH);
-#endif
-   
-#ifndef OPENSSL_NO_RIPEMD160
-   DO_HASH_IF("ripemd160", RIPEMD160, RIPEMD160_DIGEST_LENGTH);
-#endif
+         /* fails if the digest is not available from the loaded providers */
+         if (EVP_Digest(data, data_len, md, &md_len, algos[i].md(), NULL))
+            result = hexdump(md, md_len);
+         break;
+      }
+   }
 
    if (!result) {
       error("hash() unknown hash type: %s", algo);

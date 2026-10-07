@@ -210,9 +210,14 @@ else
         if test $? -eq 0; then
             CC="$CC -m64"
         fi
-	      $CC -flto comptest.c
+	      $CC -flto=auto comptest.c
         if test $? -eq 0; then
-            CC="$CC -flto"
+            CC="$CC -flto=auto"
+        else
+            $CC -flto comptest.c
+            if test $? -eq 0; then
+                CC="$CC -flto"
+            fi
         fi
 	      GNUC=1
       	CCFLAGS="-D__USE_FIXED_PROTOTYPES__"

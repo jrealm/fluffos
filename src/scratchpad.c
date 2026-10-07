@@ -170,7 +170,9 @@ char *scratch_large_alloc (int size) {
     spt->prev = (sp_block_t *)&scratch_head;
     spt->block[0] = SCRATCH_MAGIC;
     scratch_head.next = spt;
-    return (char *)&spt->block[2];
+    /* same address as &spt->block[2]; computed from spt so the compiler
+       sees the whole allocation rather than the 2-byte block[] array */
+    return (char *)spt + HDR_SIZE;
 }
 
 /* warning: unlike REALLOC(), this one only allows increases */
