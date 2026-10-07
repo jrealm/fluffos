@@ -4,7 +4,7 @@
  *    - pcre.h
  *
  * PCRE (Perl Compatible Regular Expressions)
- *    Efuns using system library of PCRE (http://www.pcre.org/)
+ *    Efuns using system library of PCRE2 (http://www.pcre.org/)
  *    The PCRE library was created by Philip Hazel at the
  *    University of Cambridge
  *
@@ -57,14 +57,13 @@
 // store reg->error & reg->erroffset before error(..)
 
 #include "lpc_incl.h"
-#include <pcre.h>
 #include "pcre.h"
 #include "macros.h"
 #include "mapping.h"
 
 // Prototype declarations
 static void       pcre_free_memory(pcre_t *p);
-static pcre      *pcre_local_compile(pcre_t *p);
+static pcre2_code *pcre_local_compile(pcre_t *p);
 static int        pcre_local_exec(pcre_t *p);
 static int        pcre_magic(pcre_t *p);
 static int        pcre_query_match(pcre_t *p);
@@ -74,19 +73,21 @@ static array_t   *pcre_assoc(svalue_t *str, array_t *pat, array_t *tok, svalue_t
 static char      *pcre_get_replace(pcre_t *run, array_t *replacements);
 static array_t   *pcre_get_substrings(pcre_t *run);
 //Caching functions
-static int        pcre_cache_pattern(struct pcre_cache_t *table, pcre *cpat, svalue_t *pattern);
-static pcre      *pcre_get_cached_pattern(struct pcre_cache_t *table, svalue_t *pattern);
+static int        pcre_cache_pattern(struct pcre_cache_t *table, pcre2_code *cpat, svalue_t *pattern);
+static pcre2_code *pcre_get_cached_pattern(struct pcre_cache_t *table, svalue_t *pattern);
 static mapping_t *pcre_get_cache();
 int pcrecachesize = 0;
 // Globals
 struct pcre_cache_t pcre_cache = {{ 0 }};
+// PCRE2 hands back error codes; the text lives here so pcre_t->error stays valid after pcre_free_memory()
+static char pcre_error_buf[256];
 
 
 // efuns
 void f_pcre_version(void)
 {
-	char *version;
-	version = (char *)pcre_version();
+	static char version[64];
+	pcre2_config(PCRE2_CONFIG_VERSION, version);
 	push_constant_string(version);
 }
 
@@ -372,45 +373,73 @@ void f_pcre_cache(void)
 
 
 // Internal functions utilized by the efuns 
-static pcre *pcre_local_compile(pcre_t *p)
+static pcre2_code *pcre_local_compile(pcre_t *p)
 {
-	p->re = pcre_compile(
-			p->pattern.u.string,
+	int errorcode;
+	PCRE2_SIZE erroffset;
+
+	p->re = pcre2_compile(
+			(PCRE2_SPTR)p->pattern.u.string,
+			PCRE2_ZERO_TERMINATED,
 #if defined USE_ICONV && !defined USE_BIG5
-			PCRE_UTF8,
+			PCRE2_UTF,
 #else
 			0,
 #endif
-			&p->error,
-			&p->erroffset,
+			&errorcode,
+			&erroffset,
 			NULL);
+
+	if (p->re == NULL)
+	{
+		pcre2_get_error_message(errorcode, (PCRE2_UCHAR *)pcre_error_buf, sizeof(pcre_error_buf));
+		p->error = pcre_error_buf;
+		p->erroffset = (int)erroffset;
+	}
 
 	return p->re;
 }
 
 static int pcre_local_exec(pcre_t *p)
 {
-	int size;
-	pcre_fullinfo(p->re, NULL, PCRE_INFO_CAPTURECOUNT, &size);
-	size+=2;
-	size *=3;
+	uint32_t capcount;
+	int size, i;
+	pcre2_match_data *md;
+	PCRE2_SIZE *ov;
+
+	pcre2_pattern_info(p->re, PCRE2_INFO_CAPTURECOUNT, &capcount);
+	size = ((int)capcount + 2) * 3;
 	if(p->ovector)
 		FREE(p->ovector);
 	p->ovector = CALLOCATE(size+1, int, TAG_TEMPORARY, "pcre_local_exec"); //too much, but who cares
 	p->ovecsize = size;
-	p->rc = pcre_exec(
+
+	md = pcre2_match_data_create_from_pattern(p->re, NULL);
+	if (md == NULL)
+		error("PCRE out of memory.\n");
+
+	p->rc = pcre2_match(
 			p->re,
-			NULL,
-			p->subject,
+			(PCRE2_SPTR)p->subject,
 			p->s_length,
 			0,
 #ifndef USE_ICONV
-			PCRE_NO_UTF8_CHECK,
+			PCRE2_NO_UTF_CHECK,
 #else
 			0,
 #endif
-			p->ovector,
-			size);
+			md,
+			NULL);
+
+	/* Copy offsets into the int ovector the rest of this file expects;
+	 * PCRE2_UNSET becomes -1, as PCRE1 used for unset groups. */
+	if (p->rc > 0)
+	{
+		ov = pcre2_get_ovector_pointer(md);
+		for (i = 0; i < p->rc * 2; i++)
+			p->ovector[i] = (ov[i] == PCRE2_UNSET) ? -1 : (int)ov[i];
+	}
+	pcre2_match_data_free(md);
 
 	return p->rc;
 }
@@ -421,8 +450,8 @@ static int pcre_magic(pcre_t *p)
 
 	if (p->re == NULL)
 	{
-		pcre_local_compile(p);
-		pcre_cache_pattern(&pcre_cache, p->re, &p->pattern);
+		if (pcre_local_compile(p))
+			pcre_cache_pattern(&pcre_cache, p->re, &p->pattern);
 	}
 
 
@@ -881,10 +910,10 @@ static void pcre_free_memory(pcre_t *p)
 }
 
 //Caching functions, add new ones at the front of the bucket so we find them faster
-static int pcre_cache_pattern(struct pcre_cache_t *table, pcre *cpat, svalue_t *pattern) //don't keep pointers to strings that will get freed elsewhere!
+static int pcre_cache_pattern(struct pcre_cache_t *table, pcre2_code *cpat, svalue_t *pattern) //don't keep pointers to strings that will get freed elsewhere!
 {
 	unsigned int bucket = svalue_to_int(pattern) % PCRE_CACHE_SIZE;
-	int sz;
+	size_t sz = 0;
 	struct pcre_cache_bucket_t *tmp;
 	struct pcre_cache_bucket_t *node;
 	int full;
@@ -892,7 +921,7 @@ static int pcre_cache_pattern(struct pcre_cache_t *table, pcre *cpat, svalue_t *
 	tmp = table->buckets[bucket];
 
 	// Calculate size of compiled pattern
-	pcre_fullinfo(cpat, NULL, PCRE_INFO_SIZE, &sz);
+	pcre2_pattern_info(cpat, PCRE2_INFO_SIZE, &sz);
 
 	full = (pcrecachesize > 2 * PCRE_CACHE_SIZE);
 	while (tmp)
@@ -906,7 +935,7 @@ static int pcre_cache_pattern(struct pcre_cache_t *table, pcre *cpat, svalue_t *
 	if (tmp)
 	{
 		//does this even make sense? same pattern will always compile the same way?
-		pcre_free(tmp->compiled_pattern);
+		pcre2_code_free(tmp->compiled_pattern);
 		node = tmp;
 	}
 	else
@@ -922,7 +951,7 @@ static int pcre_cache_pattern(struct pcre_cache_t *table, pcre *cpat, svalue_t *
 				while(tmp->next)
 					tmp = tmp->next;
 				if(tmp == table->buckets[bucket]){//if the hash version works, most of the time
-					pcre_free(tmp->compiled_pattern);
+					pcre2_code_free(tmp->compiled_pattern);
 					free_svalue(&tmp->pattern, "pcre_cache_free1");
 					FREE(tmp);
 					table->buckets[bucket] = NULL;
@@ -932,7 +961,7 @@ static int pcre_cache_pattern(struct pcre_cache_t *table, pcre *cpat, svalue_t *
 					while(tmp2->next != tmp)
 						tmp2 = tmp2->next; //shouldn't get here often
 					free_svalue(&tmp->pattern, "pcre_cache_free2");
-					pcre_free(tmp->compiled_pattern);
+					pcre2_code_free(tmp->compiled_pattern);
 					FREE(tmp);
 					tmp2->next = NULL;
 				}
@@ -949,7 +978,7 @@ static int pcre_cache_pattern(struct pcre_cache_t *table, pcre *cpat, svalue_t *
 	return 0;
 }
 
-static pcre *pcre_get_cached_pattern(struct pcre_cache_t *table, svalue_t *pattern)
+static pcre2_code *pcre_get_cached_pattern(struct pcre_cache_t *table, svalue_t *pattern)
 {
 	unsigned int bucket = svalue_to_int(pattern) % PCRE_CACHE_SIZE;
 	struct pcre_cache_bucket_t *node;
