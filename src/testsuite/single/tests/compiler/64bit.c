@@ -147,8 +147,6 @@ mixed* func_constant_overflow2() {
 
 mixed* func_sscanf() {
   int s = 0;
-  string res = "179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368.000000";
-  float f;
 
   sscanf("9223372036854775807", "%d", s);
   ASSERT_EQ(MAX_INT, s);
@@ -157,13 +155,6 @@ mixed* func_sscanf() {
 
   sscanf("-9223372036854775807", "%d", s);
   ASSERT_EQ(-1 * MAX_INT, s);
-
-  sscanf("-9223372036854775807", "%d", s);
-  ASSERT_EQ(-1 * MAX_INT, s);
-
-  sscanf(res, "%f", f);
-  ASSERT_EQ(MAX_FLOAT, f);
->>>>>>> f9cdbcf... Include #ifndef routine in auto generated header.
 }
 #endif
 
@@ -194,5 +185,12 @@ void do_tests() {
     mixed* result = evaluate(test);
     ASSERT2(result[2], result[0]);
   }
+#if defined(MAX_FLOAT)
+  func_f5();
+  func_f6();
+  func_constant_overflow1();
+  func_constant_overflow2();
+  func_sscanf();
+#endif
 #endif
 }

@@ -1,5 +1,3 @@
-inherit "/inherit/tests";
-
 void do_tests() {
     string s;
     

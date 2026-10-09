@@ -711,7 +711,7 @@ static int add_table (cst ** table)
         	} else
         		width++;
         	if(width == tab->size){
-        		tabwidth = done;
+        		tabwidth = done + 1;
         		if(tab_di[tabwidth] & 0x80){
         			while(!(tab_di[tabwidth] & 0x40)){
         				tabwidth--;

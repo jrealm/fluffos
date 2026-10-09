@@ -3,6 +3,6 @@ class foo {
 }
 
 void foo() {
-    foo y;
+    class foo y;
     y->z;
 }

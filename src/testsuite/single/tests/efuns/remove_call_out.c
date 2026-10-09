@@ -21,4 +21,12 @@ void do_tests() {
     call_out( "second_call", 1);
     ASSERT(remove_call_out("first_call") != -1);
     ASSERT(remove_call_out("foo") == -1);
+#ifdef __CALLOUT_HANDLES__
+    {
+	int handle = call_out("first_call", 5);
+
+	ASSERT(remove_call_out(handle) == 5);
+	ASSERT(remove_call_out(handle) == -1);
+    }
+#endif
 }

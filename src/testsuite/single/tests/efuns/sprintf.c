@@ -220,4 +220,24 @@ void do_tests() {
     
     hmm = sprintf("%#-20s\n", "a\nb\nc\nd\ne\nf\ng\nh\ni\nj\nk\nl\no\n");
     ASSERT2(hmm == "a   d   g   j   o\nb   e   h   k   \nc   f   i   l   \n", hmm);
+
+#if defined(__USE_ICONV__) && !defined(__USE_BIG5__)
+    // UTF-8: width and precision are display columns; a character of
+    // three bytes or more takes two columns, a two-byte one takes one
+    hmm = sprintf("%-6s|", "中文");
+    ASSERT2(hmm == "中文  |", hmm);
+    hmm = sprintf("%6s|", "中文");
+    ASSERT2(hmm == "  中文|", hmm);
+    hmm = sprintf("%.3s|", "中文");
+    ASSERT2(hmm == "中|", hmm);
+    hmm = sprintf("%.1s|", "中文");
+    ASSERT2(hmm == "|", hmm);
+    hmm = sprintf("%.2s|", "aé中");
+    ASSERT2(hmm == "aé|", hmm);
+    // table mode cuts at character boundaries
+    hmm = sprintf("%-#8.2s|", "中文字\na中文\n");
+    ASSERT2(hmm == "中文a中|", hmm);
+    hmm = sprintf("%-#8.2s|", "a中\nxy\n");
+    ASSERT2(hmm == "a中 xy|", hmm);
+#endif
 }

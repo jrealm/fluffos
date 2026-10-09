@@ -1,5 +1,5 @@
 void do_tests() {
-    mixed stack, entry;
+    mixed stack;
     int n = sizeof(call_stack(0));
     
     stack = call_stack(0);
@@ -13,8 +13,10 @@ void do_tests() {
     ASSERT(sizeof(filter(stack, (: stringp :))) == n);
     stack = call_stack(3);
     ASSERT(sizeof(filter(stack, (: stringp :))) == n);
+    stack = call_stack(4);
+    ASSERT(sizeof(filter(stack, (: stringp :))) == n);
     ASSERT(catch(call_stack(-100)));
-    ASSERT(catch(call_stack(4)));
+    ASSERT(catch(call_stack(5)));
 }
 
 	

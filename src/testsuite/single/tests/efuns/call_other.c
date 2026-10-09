@@ -1,11 +1,5 @@
 int foo() { return 1; }
 
-int same(mixed *x, mixed *y) {
-    for (int i = 0; i < sizeof(x); i++) {
-	return x[i] == y[i];
-    }
-}
-
 int bar(int x) {
     return x;
 }

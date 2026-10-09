@@ -1,5 +1,3 @@
-inherit "/inherit/tests";
-
 void do_tests() {
     int i = 5;
     float f = 6.7;

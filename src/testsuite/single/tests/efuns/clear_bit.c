@@ -8,7 +8,7 @@ void do_tests() {
     str = clear_bit(str, 7);
     ASSERT(!test_bit(str, 7));
     str = clear_bit(set_bit(str, 12), 12);
-    ASSERT(!test_bit(str, 7));
+    ASSERT(!test_bit(str, 12));
     
     ASSERT(str == clear_bit(str, 40));
 }

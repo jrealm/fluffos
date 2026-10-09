@@ -219,9 +219,11 @@ void f_pcre_replace(void)
 
 	if(pcre_magic(run) < 0)
 	{
+		const char *rerror = run->error;
+		int offset = run->erroffset;
+
 		pcre_free_memory(run);
-		error("PCRE compilation failed at offset %d: %s\n", run->erroffset,
-				run->error);
+		error("PCRE compilation failed at offset %d: %s\n", offset, rerror);
 	}
 
 
@@ -288,9 +290,11 @@ void f_pcre_replace_callback(void)
 
 	if(pcre_magic(run) < 0)
 	{
+		const char *rerror = run->error;
+		int offset = run->erroffset;
+
 		pcre_free_memory(run);
-		error("PCRE compilation failed at offset %d: %s\n", run->erroffset,
-				run->error);
+		error("PCRE compilation failed at offset %d: %s\n", offset, rerror);
 	}
 
 
