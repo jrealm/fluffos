@@ -111,7 +111,7 @@ packages/packages.a: packages/parser.c packages/contrib.c
 	(cd packages; $(MAKE) 'CC=$(CC)' 'CFLAGS=$(CFLAGS) $(OPTIMIZE)' 'RANLIB=$(RANLIB)' 'A=$(A)' 'O=$(O)')
 
 $(DRIVER_BIN): packages/packages.a $(OBJ)
-	-mv -f $(DRIVER_BIN) $(DRIVER_BIN).old
+	if [ -f $(DRIVER_BIN) ]; then mv -f $(DRIVER_BIN) $(DRIVER_BIN).old; fi
 	$(PROOF) $(CC) $(CFLAGS) $(OPTIMIZE) $(OBJ) -o $(DRIVER_BIN) packages/packages.a $(EXTRALIBS) `cat system_libs`
 
 addr_server: files addr_server.o socket_ctrl.o port.o addr_server.h
@@ -191,7 +191,7 @@ TAGS: force
 force:
 
 install: all
-	-mkdir $(INSTALL_DIR)
+	mkdir -p $(INSTALL_DIR)
 	$(INSTALL) $(DRIVER_BIN) $(INSTALL_DIR)
 	$(INSTALL) addr_server $(INSTALL_DIR)
 	$(INSTALL) portbind $(INSTALL_DIR)
@@ -218,7 +218,7 @@ spotless: clean
 
 # get ready for recompile
 neat:
-	-(cd packages; $(MAKE) "A=$(A)" "O=$(O)" clean)
+	if [ -f packages/Makefile ]; then cd packages && $(MAKE) "A=$(A)" "O=$(O)" clean; fi
 	-rm -rf $(OBJDIR) *.$(O) *.tab.c *.tab.h
 	-rm -f efun_defs.c option_defs.c
 	-rm -f opcodes.h efunctions.h opc.h efun_protos.h

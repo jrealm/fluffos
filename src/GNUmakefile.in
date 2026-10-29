@@ -95,7 +95,7 @@ packages/packages.a: packages/*.c
 	$(MAKE) -C packages 'CC=$(CC)' 'CFLAGS=$(CFLAGS) $(OPTIMIZE)' 'OBJDIR=../$(OBJDIR)' 'RANLIB=$(RANLIB)' 'AR=$(AR)' 'A=$(A)' 'O=$(O)'
 
 $(DRIVER_BIN): packages/packages.a $(OBJ) dtrace_compile
-	-mv -f $(DRIVER_BIN) $(DRIVER_BIN).old
+	if [ -f $(DRIVER_BIN) ]; then mv -f $(DRIVER_BIN) $(DRIVER_BIN).old; fi
 	$(PROOF) $(CC) $(CFLAGS) $(OPTIMIZE) $(OBJ) `./dtrace_compile` -o $(DRIVER_BIN) packages/packages.a $(EXTRALIBS) `cat system_libs`
 
 dtrace_compile: dtrace_compile.c local_options
@@ -181,7 +181,7 @@ TAGS: $(SRC)
 	etags $(SRC)
 
 install: all
-	-mkdir $(INSTALL_DIR)
+	mkdir -p $(INSTALL_DIR)
 	$(INSTALL) $(DRIVER_BIN) $(INSTALL_DIR)
 	$(INSTALL) addr_server $(INSTALL_DIR)
 	$(INSTALL) portbind $(INSTALL_DIR)
@@ -206,7 +206,7 @@ spotless: clean
 
 # get ready for recompile
 neat:
-	-(cd packages; $(MAKE) "A=$(A)" "O=$(O)" clean)
+	if [ -f packages/GNUmakefile ]; then cd packages && $(MAKE) "A=$(A)" "O=$(O)" clean; fi
 	-rm -rf $(OBJDIR) *.$(O) *.tab.c *.tab.h
 	-mkdir $(OBJDIR)
 	-echo '*.o' >$(OBJDIR)/.gitignore

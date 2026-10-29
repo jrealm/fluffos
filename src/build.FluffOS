@@ -293,7 +293,7 @@ fi
 #
 # Figure out what to use for install
 #
-mkdir tmp
+mkdir -p tmp
 cat >insttest <<END
 whatever
 END
@@ -426,7 +426,7 @@ rm $A_OUT
 
 CFLAGS="$CCFLAGS $OSFLAGS $WARN $PROFIL $DEBUG $DEBUG_MACRO $DEBUG_NON_FATAL $STR $PIPE $NEED_OLD_CPP $INCLUDE $EXPORT_DYNAMIC"
 if test ! "$OBJDIR" = ""; then
-    mkdir $OBJDIR
+    mkdir -p $OBJDIR
 fi
 
 echo SHELL=/bin/sh >>Makefile.tmp
