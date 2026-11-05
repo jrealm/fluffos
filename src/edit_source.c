@@ -1565,13 +1565,13 @@ static void handle_configure() {
     verbose_check_prog("Checking for POSIX getcwd()", "HAS_GETCWD",
                        "", "getcwd(\"\", 1000);", 0);
     verbose_check_prog("Checking for getrusage()", "RUSAGE",
-                       "", "getrusage(0, 0);", 0);
+                       "#include <sys/resource.h>", "getrusage(0, 0);", 0);
     verbose_check_prog("Checking for times()", "TIMES",
-                       "", "times(0);", 0);
+                       "#include <sys/times.h>", "times(0);", 0);
     verbose_check_prog("Checking for gettimeofday()", "HAS_GETTIMEOFDAY",
                        "", "gettimeofday(0, 0);", 0);
     verbose_check_prog("Checking for fchmod()", "HAS_FCHMOD",
-                       "", "fchmod(0, 0);", 0);
+                       "#include <sys/stat.h>", "fchmod(0, 0);", 0);
 
     printf("Checking for big or little endian ... ");
     if (!check_code("char num[] = { 0x11, 0x22, 0x33, 0x44 }; int *foo = (int *)num;",
