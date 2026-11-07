@@ -898,6 +898,18 @@ void make_efun_tables()
     int i;
 
     fprintf(stderr, "Building efun tables ...\n");
+
+    /* operators and one-arg efuns are single opcode bytes; other efuns are
+     * a one-byte index after F_EFUN0..3/F_EFUNV */
+    if (op_code >= 256) {
+        fprintf(stderr, "Too many operators (%d, at most 255 fit).\n", op_code);
+        exit(-1);
+    }
+    if (efun_code > 256) {
+        fprintf(stderr, "You have way too many efuns (%d in the general efun table, at most 256 fit).\n", efun_code);
+        exit(-1);
+    }
+
     for (i = 0; i < NUM_FILES; i++) {
         files[i] = fopen(outfiles[i], "w");
         if (!files[i]) {
@@ -949,12 +961,6 @@ void make_efun_tables()
     fprintf(files[0], "};\n");
     fprintf(files[1], "};\n");
 
-    if (efun1_code + op_code >= 256) {
-        fprintf(stderr, "You have way too many efuns.  Contact the MudOS developers if you really need this many.\n");
-    }
-    if (efun_code >= 256) {
-        fprintf(stderr, "You have way too many efuns.  Contact the MudOS developers if you really need this many.\n");
-    }
     fprintf(files[2],"\n/* efuns */\n#define NUM_OPCODES %d\n\n", efun_code + efun1_code + op_code);
 
     /* Now sort the main_list */

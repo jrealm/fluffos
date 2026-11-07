@@ -116,7 +116,7 @@ func: type ID optional_ID '(' arg_list optional_default ')' ';'
     {
 	char buff[500];
 	char f_name[500];
-	int i, len;
+	int i, len, onearg;
 	if (min_arg == -1)
 	    min_arg = $5;
         if (min_arg > 4) mf_fatal("min_arg > 4\n");
@@ -129,7 +129,15 @@ func: type ID optional_ID '(' arg_list optional_default ')' ';'
 		if (islower(f_name[i]))
 		    f_name[i] = toupper(f_name[i]);
 	    }
-            if (min_arg == 1 && !limit_max && $5 == 1) {
+            /* A one-arg efun is compiled to a single opcode byte, so its
+             * code (op_code + efun1_code + 1) must stay below 256.  The
+             * ones that do not fit use the general F_EFUN1 + index form. */
+            onearg = (min_arg == 1 && !limit_max && $5 == 1);
+            if (onearg && op_code + efun1_code + 1 >= 256) {
+                fprintf(stderr, "one-arg opcodes full: %s uses the general efun encoding\n", $2);
+                onearg = 0;
+            }
+            if (onearg) {
 	        efun1_codes[efun1_code] = (char *) malloc(len + 1);
 	        strcpy(efun1_codes[efun1_code], f_name);
 		efun1_names[efun1_code] = (char *) malloc(len - 1);
