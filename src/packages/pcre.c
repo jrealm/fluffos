@@ -60,6 +60,9 @@
 #include "pcre.h"
 #include "macros.h"
 #include "mapping.h"
+#ifdef DEBUGMALLOC_EXTENSIONS
+#include "md.h"
+#endif
 
 // Prototype declarations
 static void       pcre_free_memory(pcre_t *p);
@@ -162,11 +165,11 @@ void f_pcre_extract(void)
 
 	if(pcre_magic(run) < 0)
 	{
-		error("PCRE compilation failed at offset %d: %s\n", run->erroffset,
-				run->error);
-		pop_2_elems();
+		const char *rerror = run->error;
+		int offset = run->erroffset;
+
 		pcre_free_memory(run);
-		return;
+		error("PCRE compilation failed at offset %d: %s\n", offset, rerror);
 	}
 
 	/* Pop the 2 arguments from the stack */
@@ -493,10 +496,11 @@ static int pcre_match_single(svalue_t *str, svalue_t *pattern)
 
 	if(pcre_magic(run) < 0)
 	{
-		error("PCRE compilation failed at offset %d: %s\n", run->erroffset,
-				run->error);
+		const char *rerror = run->error;
+		int offset = run->erroffset;
+
 		pcre_free_memory(run);
-		return 0;
+		error("PCRE compilation failed at offset %d: %s\n", offset, rerror);
 	}
 
 	ret = pcre_query_match(run);
@@ -650,7 +654,8 @@ static array_t *pcre_assoc(svalue_t *str, array_t *pat, array_t *tok, svalue_t *
 					const char *rerror = rgpp[i]->error;
 					int offset = rgpp[i]->erroffset;
 
-					while (i--)
+					/* free the failed entry too: it already holds a ref to its pattern */
+					for (; i >= 0; i--)
 						pcre_free_memory(rgpp[i]);
 
 					FREE(rgpp);
@@ -944,7 +949,7 @@ static int pcre_cache_pattern(struct pcre_cache_t *table, pcre2_code *cpat, sval
 	}
 	else
 	{
-		node = CALLOCATE(1, struct pcre_cache_bucket_t, TAG_TEMPORARY, "pcre_cache_pattern : node");
+		node = CALLOCATE(1, struct pcre_cache_bucket_t, TAG_PERMANENT, "pcre_cache_pattern : node");
 		node->pattern.type = T_NUMBER; //so we don't free invalids
 		if (node == NULL)
 			return -1;
@@ -981,6 +986,19 @@ static int pcre_cache_pattern(struct pcre_cache_t *table, pcre2_code *cpat, sval
 
 	return 0;
 }
+
+#ifdef DEBUGMALLOC_EXTENSIONS
+/* tells check_memory() about the pattern strings the cache holds */
+void pcre_mark_cache (void)
+{
+	struct pcre_cache_bucket_t *node;
+	int i;
+
+	for (i = 0; i < PCRE_CACHE_SIZE; i++)
+		for (node = pcre_cache.buckets[i]; node; node = node->next)
+			mark_svalue(&node->pattern);
+}
+#endif
 
 static pcre2_code *pcre_get_cached_pattern(struct pcre_cache_t *table, svalue_t *pattern)
 {

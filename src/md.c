@@ -18,6 +18,10 @@
 #include "packages/parser.h"
 #endif
 
+#ifdef PACKAGE_PCRE
+void pcre_mark_cache (void);
+#endif
+
 /*
    note: do not use MALLOC() etc. in this module.  Unbridled recursion
    will occur.  (use malloc() etc. instead)
@@ -833,6 +837,9 @@ void check_all_blocks (int flag) {
 #endif
 #ifdef PACKAGE_PARSER
         parser_mark_verbs();
+#endif
+#ifdef PACKAGE_PCRE
+        pcre_mark_cache();
 #endif
         mark_file_sv();
         mark_all_defines();
