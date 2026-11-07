@@ -304,7 +304,7 @@ int aio_db_exec(struct request *req){
 #ifdef F_ASYNC_GETDIR
 void *getdirthread(struct request *req){
 	int fd = open(req->path, O_RDONLY);
-	int size = syscall(SYS_getdents, fd, req->buf, req->size);
+	int size = syscall(SYS_getdents64, fd, req->buf, req->size);
 	if(size == -1){
 		close(fd);
 		req->ret = 0;
@@ -312,7 +312,7 @@ void *getdirthread(struct request *req){
 		return NULL;
 	}
 	req->ret = size;
-	while(size = syscall(SYS_getdents, fd, req->buf+req->ret, req->size-req->ret)){
+	while(size = syscall(SYS_getdents64, fd, req->buf+req->ret, req->size-req->ret)){
 		if(size == -1){
 			close(fd);
 			req->status = DONE;
@@ -423,13 +423,14 @@ void handle_read(struct request *req){
 
 #ifdef F_ASYNC_GETDIR
 
-struct linux_dirent {
-	unsigned long  d_ino;     /* Inode number */
-	unsigned long  d_off;     /* Offset to next dirent */
-	unsigned short d_reclen;  /* Length of this dirent */
-	char           d_name []; /* Filename (null-terminated) */
-	/* length is actually (d_reclen - 2 -
-                                      offsetof(struct linux_dirent, d_name) */
+/* record layout returned by getdents64(2); SYS_getdents does not exist on
+ * newer architectures such as aarch64 */
+struct linux_dirent64 {
+	unsigned long long d_ino;     /* Inode number */
+	long long          d_off;     /* Offset to next dirent */
+	unsigned short     d_reclen;  /* Length of this dirent */
+	unsigned char      d_type;    /* File type */
+	char               d_name []; /* Filename (null-terminated) */
 };
 
 
@@ -441,14 +442,14 @@ void handle_getdir(struct request *req){
 	int i=0;
 	if(val > 0)
 	{
-		struct linux_dirent *de = (struct linux_dirent *)req->buf;
+		struct linux_dirent64 *de = (struct linux_dirent64 *)req->buf;
 		for(i=0; i<MAX_ARRAY_SIZE && ((char *)de) - (char *)(req->buf) < val; i++)
 		{
 			svalue_t *vp = &(ret->item[i]);
 			vp->type = T_STRING;
 			vp->subtype = STRING_MALLOC;
 			vp->u.string = string_copy(de->d_name, "encode_stat");
-			de = (struct linux_dirent *)(((char *)de) + de->d_reclen);
+			de = (struct linux_dirent64 *)(((char *)de) + de->d_reclen);
 		}
 	}
 	ret = resize_array(ret, i);
