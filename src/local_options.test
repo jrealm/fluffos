@@ -880,6 +880,9 @@
 /*PACKAGE_JSON: adds json_encode(mixed) and json_decode(string); requires UTF-8 strings (not USE_BIG5) and the jansson library >= 2.14 (-ljansson, jansson-devel)*/
 #define PACKAGE_JSON
 
+/*PACKAGE_BASE64: adds base64_encode(string|buffer) and base64_decode(string)*/
+#define PACKAGE_BASE64
+
 /*PACKAGE_SHA1: adds a function to calculate the sha1 hash of a string sha1(string)*/
 #define PACKAGE_SHA1
 

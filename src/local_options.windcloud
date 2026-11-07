@@ -888,6 +888,9 @@
 /*PACKAGE_JSON: adds json_encode(mixed) and json_decode(string); requires UTF-8 strings (not USE_BIG5) and the jansson library >= 2.14 (-ljansson, jansson-devel)*/
 #undef PACKAGE_JSON
 
+/*PACKAGE_BASE64: adds base64_encode(string|buffer) and base64_decode(string)*/
+#define PACKAGE_BASE64
+
 /* PROG_REF_TYPE size of program ref counter:
  * char for 8 bit, short for 16, int for 32,
  * long long for 64 (completely useless on 32 bit machines though!) */
