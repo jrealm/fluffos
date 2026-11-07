@@ -969,6 +969,9 @@
 /*PACKAGE_CRYPTO: adds a function that does multiple hash types hash(hash, string), needs openssl lib and includes and -lssl in system_libs*/
 #undef PACKAGE_CRYPTO
 
+/*PACKAGE_JSON: adds json_encode(mixed) and json_decode(string); requires UTF-8 strings (not USE_BIG5) and the jansson library >= 2.14 (-ljansson, jansson-devel)*/
+#undef PACKAGE_JSON
+
 /* PROG_REF_TYPE size of program ref counter:
  * char for 8 bit, short for 16, int for 32,
  * long long for 64 (completely useless on 32 bit machines though!) */

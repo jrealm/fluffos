@@ -1689,6 +1689,8 @@ static void handle_configure() {
         check_library("-lssl");
     if (lookup_define("PACKAGE_PCRE"))
         check_library("-lpcre2-8");
+    if (lookup_define("PACKAGE_JSON"))
+        check_library("-ljansson");
     if (lookup_define("PACKAGE_CRYPTO")) {
         check_library("-lcrypto");
 	check_library("-lssl");

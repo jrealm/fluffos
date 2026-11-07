@@ -1,8 +1,10 @@
 FROM almalinux:10 AS build
 
-RUN dnf -y install \
+RUN dnf -y install dnf-plugins-core \
+    && dnf config-manager --set-enabled crb \
+    && dnf -y install \
         gcc make bison findutils \
-        openssl-devel pcre2-devel libpq-devel libxcrypt-devel \
+        openssl-devel pcre2-devel libpq-devel libxcrypt-devel jansson-devel \
     && dnf clean all
 
 ARG LOCAL_OPTIONS=local_options.catworld
@@ -21,7 +23,7 @@ RUN cp "${LOCAL_OPTIONS}" local_options \
 FROM almalinux:10-minimal
 
 RUN microdnf -y install \
-        openssl-libs pcre2 libpq libxcrypt \
+        openssl-libs pcre2 libpq libxcrypt jansson \
         glibc-gconv-extra glibc-langpack-zh tzdata \
     && microdnf clean all
 
