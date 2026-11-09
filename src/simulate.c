@@ -1890,7 +1890,7 @@ void shutdownMudOS (int exit_code)
 #endif
     for (i = 0; i < max_users; i++) {
         if (all_users[i] && !(all_users[i]->iflags & CLOSING))
-            flush_message(all_users[i]);
+            retry_flush(all_users[i]);  /* last chance; try once more */
     }
 #ifdef PROFILING
     monitor(0, 0, 0, 0, 0);     /* cause gmon.out to be written */

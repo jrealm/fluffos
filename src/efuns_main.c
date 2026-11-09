@@ -1876,7 +1876,7 @@ void f_mud_status (void)
                     total_mapping_size);
         outbuf_addv(&ob, "Mappings(nodes):\t\t%8d\n", total_mapping_nodes);
         outbuf_addv(&ob, "Interactives:\t\t\t%8d %8d\n", num_user,
-                    num_user * sizeof(interactive_t));
+                    interactive_memory());
 
         tot = show_otable_status(&ob, verbose) +
             heart_beat_status(&ob, verbose) +
@@ -1894,7 +1894,7 @@ void f_mud_status (void)
         total_mapping_size +
         tot_alloc_sentence * sizeof(sentence_t) +
         tot_alloc_object_size +
-        num_user * sizeof(interactive_t) +
+        interactive_memory() +
         res;
 
     if (!verbose) {
@@ -3880,7 +3880,7 @@ f_memory_info (void)
             total_mapping_size +
             tot_alloc_object_size +
             tot_alloc_sentence * sizeof(sentence_t) +
-            num_user * sizeof(interactive_t) +
+            interactive_memory() +
             show_otable_status(0, -1) +
             heart_beat_status(0, -1) +
             add_string_status(0, -1) +

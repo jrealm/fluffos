@@ -801,6 +801,13 @@
  */
 #define MESSAGE_BUFFER_SIZE 4096
 
+/* MAX_MESSAGE_BUFFER_SIZE: when a user reads output more slowly than it is
+ *   produced, the output buffer grows as needed.  Output is never dropped: a
+ *   user who still has more than this many bytes unsent when more output
+ *   arrives is disconnected.
+ */
+#define MAX_MESSAGE_BUFFER_SIZE 1048576
+
 /* APPLY_CACHE_BITS: defines the number of bits to use in the call_other cache
  *   (in interpret.c).
  *

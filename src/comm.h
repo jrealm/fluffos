@@ -19,6 +19,10 @@
 #define MAX_SOCKET_PACKET_SIZE     1024
 #define DESIRED_SOCKET_PACKET_SIZE 800
 #define MESSAGE_BUF_SIZE           MESSAGE_BUFFER_SIZE  /* from options.h */
+#define MAX_MESSAGE_BUF_SIZE       MAX_MESSAGE_BUFFER_SIZE
+#if MAX_MESSAGE_BUF_SIZE < MESSAGE_BUF_SIZE
+#error MAX_MESSAGE_BUFFER_SIZE must not be smaller than MESSAGE_BUFFER_SIZE
+#endif
 #define OUT_BUF_SIZE               2048
 #define DFAULT_PROTO               0    /* use the appropriate protocol */
 #define I_NOECHO                   0x1  /* input_to flag */
@@ -68,6 +72,7 @@ enum msgtypes {
 #define USING_ZMP           0x8000              /* we've negotiated zmp */
 #define USING_GMCP			0x10000				/* we've negotiated gmcp */
 #define HANDSHAKE_COMPLETE  0x20000				/* websocket connected */
+#define WRITE_BLOCKED       0x40000             /* socket full, wait for select() */
 
 typedef struct interactive_s {
     object_t *ob;               /* points to the associated object         */
@@ -114,10 +119,10 @@ typedef struct interactive_s {
     unsigned char compress_buf[COMPRESS_BUF_SIZE]; /* compress message buffer*/
 #endif
 
-    int message_producer;       /* message buffer producer index */
-    int message_consumer;       /* message buffer consumer index */
-    int message_length;         /* message buffer length */
-    unsigned char message_buf[MESSAGE_BUF_SIZE]; /* message buffer */
+    unsigned char *message_buf; /* output not yet sent */
+    int message_start;          /* where it starts in message_buf */
+    int message_length;         /* how long it is */
+    int message_size;           /* message_buf size; grows as needed */
     int iflags;                 /* interactive flags */
     char out_of_band;           /* Send a telnet sync operation            */
     int state;                  /* Current telnet state.  Bingly wop       */
@@ -132,6 +137,10 @@ typedef struct interactive_s {
     int ws_size;
     int ws_mask;
     char ws_maskoffs;
+    int ws_frame_left;             /* payload bytes of the frame being sent   */
+    unsigned char ws_header[10];   /* header of the frame being sent          */
+    char ws_header_len;            /* header length                           */
+    char ws_header_left;           /* header bytes not yet sent               */
 } interactive_t;
 
  /*
@@ -213,6 +222,8 @@ int replace_interactive (object_t *, object_t *);
 int set_call (object_t *, sentence_t *, int);
 void remove_interactive (object_t *, int);
 int flush_message (interactive_t *);
+void retry_flush (interactive_t *);
+int interactive_memory (void);
 int query_addr_number (const char *, svalue_t *);
 char *query_ip_name (object_t *);
 const char *query_ip_number (object_t *);

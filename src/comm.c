@@ -16,6 +16,7 @@
 #include "add_action.h"
 #include "eval.h"
 #include "console.h"
+#include <sys/uio.h>
 
 #ifndef ENOSR
 #define ENOSR 63
@@ -557,16 +558,135 @@ static int shadow_catch_message (object_t * ob, const char * str)
 #endif
 
 /*
+ * ip->message_buf holds the output not yet sent: message_length bytes
+ * from message_start, in a buffer of message_size bytes.  The buffer
+ * starts at MESSAGE_BUF_SIZE and grows when output piles up faster than
+ * the client reads it.  Output is never dropped: a client that still has
+ * more than MAX_MESSAGE_BUF_SIZE bytes unsent when more output arrives is
+ * disconnected.
+ */
+
+/* move the unsent output to the start of a buffer of size bytes */
+static void resize_message_buf (interactive_t * ip, int size)
+{
+	unsigned char *buf = ip->message_buf;
+
+	if (size != ip->message_size)
+		buf = (unsigned char *)DMALLOC(size, TAG_PERMANENT, "message_buf");
+	memmove(buf, ip->message_buf + ip->message_start, ip->message_length);
+	if (buf != ip->message_buf) {
+		FREE(ip->message_buf);
+		ip->message_buf = buf;
+		ip->message_size = size;
+	}
+	ip->message_start = 0;
+}
+
+/* send what the socket will take now, even if it was full last time */
+void retry_flush (interactive_t * ip)
+{
+	ip->iflags &= ~WRITE_BLOCKED;
+	flush_message(ip);
+}
+
+static void client_too_slow (interactive_t * ip)
+{
+	char when[32];
+	time_t now = current_time;
+
+	strftime(when, sizeof(when), "%Y-%m-%d %H:%M:%S", localtime(&now));
+	debug_message("%s %s (%s): client stopped reading (%d bytes of output "
+			"pending); disconnecting.\n", when,
+			ip->ob ? ip->ob->obname : "?",
+			ip->ob ? query_ip_number(ip->ob) : "?", ip->message_length);
+	ip->iflags |= NET_DEAD;
+}
+
+/*
+ * Make room for need more bytes after the unsent output: send what the
+ * socket will take, then compact or grow the buffer.  Return 0 if the
+ * connection is dead.
+ */
+static int make_room (interactive_t * ip, int need)
+{
+	int size;
+
+	if (ip->message_start + ip->message_length + need <= ip->message_size)
+		return 1;
+	/* the socket may have drained since it filled up; try it now */
+	retry_flush(ip);
+	if (ip->iflags & NET_DEAD)
+		return 0;
+	if (ip->message_length + need <= ip->message_size) {
+		if (ip->message_start + ip->message_length + need > ip->message_size)
+			resize_message_buf(ip, ip->message_size);
+		return 1;
+	}
+	/*
+	 * Judge the client by what it still owes, not by the size of this
+	 * message: one that has read everything gets any message whole.
+	 */
+	if (ip->message_length > MAX_MESSAGE_BUF_SIZE) {
+		client_too_slow(ip);
+		return 0;
+	}
+	for (size = ip->message_size; size < ip->message_length + need; size *= 2)
+		;
+	/* past the limit, take only what this message needs, so the next one
+	 * comes back here and finds the client too far behind */
+	if (size > MAX_MESSAGE_BUF_SIZE)
+		size = (ip->message_length + need > MAX_MESSAGE_BUF_SIZE) ?
+				ip->message_length + need : MAX_MESSAGE_BUF_SIZE;
+	resize_message_buf(ip, size);
+	return 1;
+}
+
+/* append n bytes to the unsent output; the caller has made room */
+static void put_bytes (interactive_t * ip, const char * s, int n)
+{
+	memcpy(ip->message_buf + ip->message_start + ip->message_length, s, n);
+	ip->message_length += n;
+}
+
+/* telnet sends \n as \r\n and doubles IAC */
+#define NEEDS_ESCAPE(c) ((c) == '\n' || (unsigned char)(c) == IAC)
+
+/* bytes s..end takes once escaped */
+static int escaped_length (const char * s, const char * end)
+{
+	int n = end - s;
+
+	for (; s < end; s++)
+		if (NEEDS_ESCAPE(*s))
+			n++;
+	return n;
+}
+
+/* append s..end, escaped; the caller has made room */
+static void put_escaped (interactive_t * ip, const char * s, const char * end)
+{
+	const char *cp, *run = s;
+
+	for (cp = s; cp < end; cp++) {
+		if (NEEDS_ESCAPE(*cp)) {
+			put_bytes(ip, run, cp - run);
+			put_bytes(ip, (*cp == '\n') ? "\r\n" : "\xff\xff", 2);
+			run = cp + 1;
+		}
+	}
+	put_bytes(ip, run, end - run);
+}
+
+/*
  * Send a message to an interactive object. If that object is shadowed,
  * special handling is done.
  */
 void add_message (object_t * who, const char * data, int len)
 {
 	interactive_t *ip;
-	const char *cp;
 	const char *end;
 	char *trans;
-	int translen;
+	int translen, need;
 	/*
 	 * if who->interactive is not valid, write message on stderr.
 	 * (maybe)
@@ -594,42 +714,26 @@ void add_message (object_t * who, const char * data, int len)
 #endif                          /* NO_SHADOWS */
 
 	/*
-	 * write message into ip->message_buf.
+	 * write message into ip->message_buf.  The whole message goes in at
+	 * once, so the web client, which parses each websocket frame on its
+	 * own, never gets part of one.
 	 */
-	if (ip->message_length + translen + 256 > MESSAGE_BUF_SIZE) {
-		flush_message(ip);
-	}
 	end = trans + translen;
-	for (cp = trans; cp < end; cp++) {
-		if (ip->message_length == MESSAGE_BUF_SIZE) {
-			if (!flush_message(ip)) {
-				debug(connections, ("Broken connection during add_message."));
-				return;
-			}
-			if (ip->message_length == MESSAGE_BUF_SIZE)
-				break;
-		}
-		if ((*cp == '\n' || *cp == -1)
 #ifndef NO_BUFFER_TYPE
-				&& ip->connection_type != PORT_BINARY
+	if (ip->connection_type == PORT_BINARY) {
+		if (!make_room(ip, translen))
+			return;
+		put_bytes(ip, trans, translen);
+	} else
 #endif
-		) {
-			if (ip->message_length == (MESSAGE_BUF_SIZE - 1)) {
-				if (!flush_message(ip)) {
-					debug(connections, ("Broken connection during add_message."));
-					return;
-				}
-				if (ip->message_length == (MESSAGE_BUF_SIZE - 1))
-					break;
-			}
-			ip->message_buf[ip->message_producer] = (*cp == '\n')?'\r':-1;
-			ip->message_producer = (ip->message_producer + 1)
-                														% MESSAGE_BUF_SIZE;
-			ip->message_length++;
-		}
-		ip->message_buf[ip->message_producer] = *cp;
-		ip->message_producer = (ip->message_producer + 1) % MESSAGE_BUF_SIZE;
-		ip->message_length++;
+	{
+		/* escaping at most doubles it; count exactly only if that matters */
+		need = 2 * translen;
+		if (ip->message_start + ip->message_length + need > ip->message_size)
+			need = escaped_length(trans, end);
+		if (!make_room(ip, need))
+			return;
+		put_escaped(ip, trans, end);
 	}
 
 	handle_snoop(data, len, ip);
@@ -644,89 +748,20 @@ void add_message (object_t * who, const char * data, int len)
 /* WARNING: this can only handle results < LARGEST_PRINTABLE_STRING in size */
 void add_vmessage (object_t *who, const char *format, ...)
 {
-	int len;
-	interactive_t *ip;
-	char *cp, new_string_data[LARGEST_PRINTABLE_STRING + 1];
+	char new_string_data[LARGEST_PRINTABLE_STRING + 1];
 	va_list args;
 
 	V_START(args, format);
 	V_VAR(object_t *, who, args);
 	V_VAR(char *, format, args);
-	/*
-	 * if who->interactive is not valid, write message on stderr.
-	 * (maybe)
-	 */
-	if (!who || (who->flags & O_DESTRUCTED) || !who->interactive ||
-			(who->interactive->iflags & (NET_DEAD | CLOSING))) {
-#ifdef NONINTERACTIVE_STDERR_WRITE
-		putc(']', stderr);
-		vfprintf(stderr, format, args);
-#endif
-		va_end(args);
-		return;
-	}
-	ip = who->interactive;
-	new_string_data[0] = '\0';
-
 	vsnprintf(new_string_data, LARGEST_PRINTABLE_STRING, format, args);
 	va_end(args);
-	len = strlen(new_string_data);
-#ifdef SHADOW_CATCH_MESSAGE
-	/*
-	 * shadow handling.
-	 */
-	if (shadow_catch_message(who, new_string_data)) {
-#ifdef SNOOP_SHADOWED
-		handle_snoop(new_string_data, len, ip);
-#endif
-		return;
-	}
-#endif                          /* NO_SHADOWS */
-
-	/*
-	 * write message into ip->message_buf.
-	 */
-	for (cp = new_string_data; *cp != '\0'; cp++) {
-		if (ip->message_length == MESSAGE_BUF_SIZE) {
-			if (!flush_message(ip)) {
-				debug(connections, ("Broken connection during add_message."));
-				return;
-			}
-			if (ip->message_length == MESSAGE_BUF_SIZE)
-				break;
-		}
-		if (*cp == '\n') {
-			if (ip->message_length == (MESSAGE_BUF_SIZE - 1)) {
-				if (!flush_message(ip)) {
-					debug(connections, ("Broken connection during add_message.\n"));
-					return;
-				}
-				if (ip->message_length == (MESSAGE_BUF_SIZE - 1))
-					break;
-			}
-			ip->message_buf[ip->message_producer] = '\r';
-			ip->message_producer = (ip->message_producer + 1)
-                														% MESSAGE_BUF_SIZE;
-			ip->message_length++;
-		}
-		ip->message_buf[ip->message_producer] = *cp;
-		ip->message_producer = (ip->message_producer + 1) % MESSAGE_BUF_SIZE;
-		ip->message_length++;
-	}
-
-	handle_snoop(new_string_data, len, ip);
-
-#ifdef FLUSH_OUTPUT_IMMEDIATELY
-	flush_message(ip);
-#endif
-
-	add_message_calls++;
-}                               /* add_message() */
+	add_message(who, new_string_data, strlen(new_string_data));
+}
 
 void add_binary_message (object_t * who, const unsigned char * data, int len, int expect)
 {
 	interactive_t *ip;
-	const unsigned char *cp, *end;
 
 	/*
 	 * if who->interactive is not valid, bail
@@ -738,25 +773,15 @@ void add_binary_message (object_t * who, const unsigned char * data, int len, in
 	ip = who->interactive;
 
 	/*
-	 * write message into ip->message_buf.
+	 * write message into ip->message_buf.  expect is how many more bytes
+	 * the caller is about to add; make room for those too so the whole
+	 * sequence stays together.  A negative expect flushes first.
 	 */
-	if (expect < 0 || ip->message_length + len + expect > MESSAGE_BUF_SIZE) {
+	if (expect < 0)
 		flush_message(ip);
-	}
-	end = data + len;
-	for (cp = data; cp < end; cp++) {
-		if (ip->message_length == MESSAGE_BUF_SIZE) {
-			if (!flush_message(ip)) {
-				debug(connections, ("Broken connection during add_message."));
-				return;
-			}
-			if (ip->message_length == MESSAGE_BUF_SIZE)
-				break;
-		}
-		ip->message_buf[ip->message_producer] = *cp;
-		ip->message_producer = (ip->message_producer + 1) % MESSAGE_BUF_SIZE;
-		ip->message_length++;
-	}
+	if (!make_room(ip, len + (expect > 0 ? expect : 0)))
+		return;
+	put_bytes(ip, (const char *)data, len);
 
 #ifdef FLUSH_OUTPUT_IMMEDIATELY
 	flush_message(ip);
@@ -766,98 +791,111 @@ void add_binary_message (object_t * who, const unsigned char * data, int len, in
 }
 
 /*
- * Flush outgoing message buffer of current interactive object.
+ * Send data as a websocket binary frame, header and payload in one
+ * sendmsg().  A frame covers all the output there was when it was
+ * started, so output added later goes into the next frame and the web
+ * client, which parses each frame on its own, never gets part of a
+ * message.  If the socket takes only part of a frame, the rest goes out
+ * next time.  Return payload bytes sent, or -1 with socket_errno set.
+ */
+static int send_ws_frame (interactive_t * ip, unsigned char * data, int length)
+{
+	struct iovec iov[2];
+	struct msghdr msg;
+	int sent, hdr, size;
+
+	if (!ip->ws_frame_left) {
+		ip->ws_header[0] = 0x82;	/* FIN, binary frame */
+		if (length > 65535) {
+			int i;
+
+			ip->ws_header[1] = 127;
+			for (i = 0; i < 8; i++)
+				ip->ws_header[2 + i] = (i < 4) ? 0 :
+						(length >> (8 * (7 - i))) & 0xff;
+			ip->ws_header_len = 10;
+		} else if (length > 125) {
+			ip->ws_header[1] = 126;
+			ip->ws_header[2] = (length >> 8) & 0xff;
+			ip->ws_header[3] = length & 0xff;
+			ip->ws_header_len = 4;
+		} else {
+			ip->ws_header[1] = length;
+			ip->ws_header_len = 2;
+		}
+		ip->ws_header_left = ip->ws_header_len;
+		ip->ws_frame_left = length;
+	}
+	hdr = ip->ws_header_left;
+	size = ip->ws_frame_left;
+	iov[0].iov_base = ip->ws_header + ip->ws_header_len - hdr;
+	iov[0].iov_len = hdr;
+	iov[1].iov_base = data;
+	iov[1].iov_len = size;
+	memset(&msg, 0, sizeof(msg));
+	msg.msg_iov = iov;
+	msg.msg_iovlen = 2;
+
+	sent = sendmsg(ip->fd, &msg, MSG_NOSIGNAL);
+	if (sent <= 0)
+		return sent;
+	if (sent < hdr + size)
+		ip->iflags |= WRITE_BLOCKED;
+	if (sent < hdr)
+		hdr = sent;
+	ip->ws_header_left -= hdr;
+	sent -= hdr;
+	ip->ws_frame_left -= sent;
+	return sent;
+}
+
+/*
+ * Send the unsent output.  Once the socket is full, wait until select()
+ * says it is writable.  Return 0 if the connection is dead.
  */
 int flush_message (interactive_t * ip)
 {
-	int length, num_bytes;
-
-	/*
-	 * if ip is not valid, do nothing.
-	 */
-	if (!ip || (ip->iflags & (NET_DEAD | CLOSING))) {
-		//debug(connections, ("flush_message: invalid target!\n"));
+	if (!ip || (ip->iflags & (NET_DEAD | CLOSING)))
 		return 0;
-	}
-	/*
-	 * write ip->message_buf[] to socket.
-	 */
-	while (ip->message_length != 0) {
-		if (ip->message_consumer < ip->message_producer) {
-			length = ip->message_producer - ip->message_consumer;
-		} else {
-			length = MESSAGE_BUF_SIZE - ip->message_consumer;
-		}
-		/* Need to use send to get out of band data
-   num_bytes = write(ip->fd,ip->message_buf + ip->message_consumer,length);
-		 */
+
+	while (ip->message_length != 0 && !(ip->iflags & WRITE_BLOCKED)) {
+		unsigned char *data = ip->message_buf + ip->message_start;
+		int length = ip->message_length;
+		int num_bytes;
+
 #ifdef HAVE_ZLIB
-		if (ip->compressed_stream) {
-			num_bytes = send_compressed(ip, (unsigned char *)ip->message_buf +
-					ip->message_consumer,  length);
-		} else {
+		if (ip->compressed_stream)
+			num_bytes = send_compressed(ip, data, length);
+		else
 #endif
-			if(ip->connection_type == PORT_WEBSOCKET && (ip->iflags & HANDSHAKE_COMPLETE)){
-				int sendres, expectsize, sendsize = ip->message_length;
-				if (sendsize > 125) {
-					unsigned int flags = htonl(sendsize | 0x827E0000);
-					expectsize = 4;
-					sendres = send(ip->fd, &flags, 4, 0);
-				} else {
-					unsigned short flags = htons(sendsize | 0x8200);
-					expectsize = 2;
-					sendres = send(ip->fd, &flags, 2, 0);
-				}
-				if (sendres <= 0) {
-					return 1;
-				} else if (sendres != expectsize) {
-					ip->iflags |= NET_DEAD;
-					return 0;
-				}
-				num_bytes = send(ip->fd, ip->message_buf + ip->message_consumer, length, 0);
-				if (num_bytes == length) {
-					if (sendsize > length) {
-						num_bytes += send(ip->fd, ip->message_buf, sendsize - length, 0);
-						if (num_bytes != sendsize) {
-							ip->iflags |= NET_DEAD;
-							return 0;
-						}
-					}
-				} else {
-					ip->iflags |= NET_DEAD;
-					return 0;
-				}
-			} else {
-				num_bytes = send(ip->fd, ip->message_buf + ip->message_consumer,
-						length, ip->out_of_band | MSG_NOSIGNAL);
-			}
-#ifdef HAVE_ZLIB
+		if (ip->connection_type == PORT_WEBSOCKET &&
+				(ip->iflags & HANDSHAKE_COMPLETE))
+			num_bytes = send_ws_frame(ip, data, length);
+		else {
+			num_bytes = send(ip->fd, data, length,
+					ip->out_of_band | MSG_NOSIGNAL);
+			if (num_bytes > 0 && num_bytes < length)
+				ip->iflags |= WRITE_BLOCKED;
 		}
-#endif
-		if (!num_bytes) {
-			ip->iflags |= NET_DEAD;
-			return 0;
-		}
+
 		if (num_bytes == -1) {
 #ifdef EWOULDBLOCK
 			if (socket_errno == EWOULDBLOCK) {
-				//debug(connections, ("flush_message: write: Operation would block\n"));
-				return 1;
-#else
-			if (0) {
-				;
-#endif
-			} else if (socket_errno == EINTR) {
-				//debug(connections, ("flush_message: write: Interrupted system call"));
-				return 1;
-			} else {
-				//socket_perror("flush_message: write", 0);
-				ip->iflags |= NET_DEAD;
-				return 0;
+				ip->iflags |= WRITE_BLOCKED;
+				break;
 			}
+#endif
+			if (socket_errno == EINTR)
+				continue;
+			ip->iflags |= NET_DEAD;
+			return 0;
 		}
-		ip->message_consumer = (ip->message_consumer + num_bytes) %
-				MESSAGE_BUF_SIZE;
+		/* nothing sent and not blocked: the connection is gone */
+		if (!num_bytes && !(ip->iflags & WRITE_BLOCKED)) {
+			ip->iflags |= NET_DEAD;
+			return 0;
+		}
+		ip->message_start += num_bytes;
 		ip->message_length -= num_bytes;
 		ip->out_of_band = 0;
 		inet_packets++;
@@ -869,8 +907,25 @@ int flush_message (interactive_t * ip)
 		external_port[ip->external_port].out_volume += num_bytes;
 #endif
 	}
+	if (!ip->message_length) {
+		/* the client has caught up; give back what the buffer grew by */
+		ip->message_start = 0;
+		if (ip->message_size > MESSAGE_BUF_SIZE)
+			resize_message_buf(ip, MESSAGE_BUF_SIZE);
+	}
 	return 1;
-}                               /* flush_message() */
+}
+
+/* memory used by interactives, for mud_status() and memory_info() */
+int interactive_memory (void)
+{
+	int i, total = 0;
+
+	for (i = 0; i < max_users; i++)
+		if (all_users[i])
+			total += sizeof(interactive_t) + all_users[i]->message_size;
+	return total;
+}
 
 static int send_mssp_val(mapping_t *map, mapping_node_t *el, void *obp){
 	object_t *ob = (object_t *)obp;
@@ -1821,17 +1876,18 @@ INLINE void make_selectmasks()
 	 * set user fds in readmask.
 	 */
 	for (i = 0; i < max_users; i++) {
-		if (!all_users[i] || (all_users[i]->iflags & (CLOSING | CMD_IN_BUF)))
+		if (!all_users[i] || (all_users[i]->iflags & CLOSING))
 			continue;
-		/*
-		 * if this user needs more input to make a complete command, set his
-		 * fd so we can get it.
-		 */
-		FD_SET(all_users[i]->fd, &readmask);
 		if(all_users[i]->fd > max_fd)
 			max_fd = all_users[i]->fd;
 		if (all_users[i]->message_length != 0)
 			FD_SET(all_users[i]->fd, &writemask);
+		/*
+		 * if this user needs more input to make a complete command, set his
+		 * fd so we can get it.  With commands still queued, only write.
+		 */
+		if (!(all_users[i]->iflags & CMD_IN_BUF))
+			FD_SET(all_users[i]->fd, &readmask);
 	}
 	/*
 	 * if addr_server_fd is set, set its fd in readmask.
@@ -1883,20 +1939,23 @@ INLINE void process_io()
 	 * check for data pending on user connections.
 	 */
 	for (i = 0; i < max_users; i++) {
-		if (!all_users[i] || (all_users[i]->iflags & (CLOSING | CMD_IN_BUF)))
+		if (!all_users[i] || (all_users[i]->iflags & CLOSING))
 			continue;
-		if (all_users[i]->iflags & NET_DEAD) {
-			remove_interactive(all_users[i]->ob, 0);
-			continue;
-		}
-		if (FD_ISSET(all_users[i]->fd, &readmask)) {
-			debug(connections, ("process_io: USER %d\n", i));
-			get_user_data(all_users[i]);
-			if (!all_users[i])
+		/* with commands still queued, don't read more; keep writing */
+		if (!(all_users[i]->iflags & CMD_IN_BUF)) {
+			if (all_users[i]->iflags & NET_DEAD) {
+				remove_interactive(all_users[i]->ob, 0);
 				continue;
+			}
+			if (FD_ISSET(all_users[i]->fd, &readmask)) {
+				debug(connections, ("process_io: USER %d\n", i));
+				get_user_data(all_users[i]);
+				if (!all_users[i])
+					continue;
+			}
 		}
 		if (FD_ISSET(all_users[i]->fd, &writemask))
-			flush_message(all_users[i]);
+			retry_flush(all_users[i]);
 	}
 #if defined(PACKAGE_SOCKETS) || defined(PACKAGE_EXTERNAL)
 	/*
@@ -2003,10 +2062,6 @@ static void new_user_handler (int which)
 		/* it's ok if this fails */
 	}
 #endif
-	if (external_port[which].kind == PORT_WEBSOCKET) {
-		int sndbuf = 65536;
-		setsockopt(new_socket_fd, SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof sndbuf);
-	}
 	/* find the first available slot */
 	for (i = 0; i < max_users; i++)
 		if (!all_users[i]) break;
@@ -2066,14 +2121,18 @@ static void new_user_handler (int which)
 	master_ob->interactive->compressed_stream = NULL;
 #endif
 
-	master_ob->interactive->message_producer = 0;
-	master_ob->interactive->message_consumer = 0;
+	master_ob->interactive->message_start = 0;
 	master_ob->interactive->message_length = 0;
+	master_ob->interactive->message_size = MESSAGE_BUF_SIZE;
+	master_ob->interactive->message_buf = (unsigned char *)DMALLOC(
+			MESSAGE_BUF_SIZE, TAG_PERMANENT, "message_buf");
 	master_ob->interactive->state = TS_DATA;
 	master_ob->interactive->out_of_band = 0;
 	master_ob->interactive->ws_text_start = 0;
 	master_ob->interactive->ws_text_end = 0;
 	master_ob->interactive->ws_size = 0;
+	master_ob->interactive->ws_frame_left = 0;
+	master_ob->interactive->ws_header_left = 0;
 #ifdef USE_ICONV
 #ifdef USE_BIG5
 	master_ob->interactive->trans = get_translator("BIG5");
@@ -2490,7 +2549,7 @@ static char *get_user_command()
 #else
 		debug(connections, ("Closing connection from %s.\n", inet_ntoa(ip->addr.sin_addr)));
 #endif
-		flush_message(ip);
+		retry_flush(ip);	/* no more select(); try once more */
 		ip->iflags |= CLOSING;
 
 #ifdef OLD_ED
@@ -2551,6 +2610,7 @@ static char *get_user_command()
 			if (all_users[idx] == ip) break;
 		DEBUG_CHECK(idx == max_users, "remove_interactive: could not find and remove user!\n");
 		FREE(ip->sb_buf);
+		FREE(ip->message_buf);
 		FREE(ip);
 		ob->interactive = 0;
 		all_users[idx] = 0;
@@ -3419,6 +3479,10 @@ static int send_compressed (interactive_t *ip, unsigned char* data, int length) 
 		if(!( wr = flush_compressed_output(ip)))
 			return 0;
 	}
+	/* the socket is full with input left over: disconnect rather than
+	 * drop it (flush_message() treats 0 bytes sent as a dead link) */
+	if (zcompress->avail_in)
+		return 0;
 	return length;
 }
 #endif
@@ -3449,8 +3513,11 @@ void f_send_zmp(){
 
 #ifdef F_SEND_GMCP
 void f_send_gmcp(){
-	add_binary_message(current_object, telnet_start_gmcp, sizeof(telnet_start_gmcp), strlen(sp->u.string) + sizeof(telnet_end_sub));
-	add_binary_message(current_object, (const unsigned char *)(sp->u.string), strlen(sp->u.string), 0);
+	int len = SVALUE_STRLEN(sp);
+
+	/* expect makes room for the body and end too, so all three go together */
+	add_binary_message(current_object, telnet_start_gmcp, sizeof(telnet_start_gmcp), len + sizeof(telnet_end_sub));
+	add_binary_message(current_object, (const unsigned char *)(sp->u.string), len, 0);
 	add_binary_message(current_object, telnet_end_sub, sizeof(telnet_end_sub), 0);
 
   pop_stack();
