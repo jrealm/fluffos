@@ -73,7 +73,7 @@ static json_t *to_json (json_enc_t *e, svalue_t *v)
 
     switch (v->type) {
     case T_NUMBER:
-        if (v->subtype == T_UNDEFINED)
+        if (v->subtype == T_UNDEFINED && v->u.number == 0)
             return json_null();
         return json_integer(v->u.number);
 

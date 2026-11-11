@@ -67,6 +67,13 @@ void do_tests() {
     ASSERT_EQ("null", json_encode((: same :)));
     ASSERT_EQ("null", json_encode(([])["missing"]));
 
+    /* ++ on a new mapping key leaves the stale undefined subtype behind */
+    m = ([]);
+    m["a"]++;
+    ASSERT_EQ("{\"a\":1}", json_encode(m));
+    m["b"]--;
+    ASSERT_EQ(-1, json_decode(json_encode(m))["b"]);
+
     /* encode: containers */
     ASSERT_EQ("[]", json_encode(({})));
     ASSERT_EQ("{}", json_encode(([])));
