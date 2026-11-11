@@ -2621,7 +2621,47 @@ f_replace_string (void)
         }
         pop_n_elems(st_num_arg - 1);
     } else {
-        dst2 = dst1 = new_string(max_string_length, "f_replace_string: 2");
+        /* 先算出替換後的長度，只配置需要的大小；配置 max_string_length 每次都要 malloc 一大塊 */
+        const char *p = src;
+        int total;
+
+        if (plen > 1) {
+            while (p < flimit) {
+                if ((skip = skip_table[(unsigned char)p[probe]])) {
+                    p += skip;
+                } else if (memcmp(p, pattern, plen) == 0) {
+                    cur++;
+                    p += plen;
+                    if ((cur >= first) && (cur <= last)) {
+                        dlen++;
+                        if (cur == last) break;
+                    }
+                } else {
+                    p++;
+                }
+            }
+        } else {
+            slen = SVALUE_STRLEN(arg);
+            for (; *p; p++) {
+                if (*p == *pattern) {
+                    cur++;
+                    if (cur >= first && cur <= last) {
+                        dlen++;
+                    }
+                }
+            }
+        }
+
+        total = slen + dlen * (rlen - plen);
+        if (total >= max_string_length) {
+            pop_n_elems(st_num_arg);
+            push_svalue(&const0u);
+            return;
+        }
+        cur = 0;
+        dlen = 0;
+
+        dst2 = dst1 = new_string(total, "f_replace_string: 2");
 
         if (plen > 1) {
             while (src < flimit) {
