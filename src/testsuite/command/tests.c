@@ -2,11 +2,17 @@
 
 int main(string fun);
 
+int failures;
+
 void recurse(string dir) {
-    mixed leaks;
-    
-    foreach (string file in get_dir(dir + "*.c")) 
-	main(dir + file);
+    mixed leaks, err;
+
+    foreach (string file in get_dir(dir + "*.c")) {
+	if (err = catch(main(dir + file))) {
+	    write("FAIL " + dir + file + ": " + err);
+	    failures++;
+	}
+    }
     foreach (string subdir in map(filter(get_dir(dir + "*", -1),
 					 (: $1[1] == -2 :)),
 				  (: $1[0] :)) - ({ ".", ".." }))
@@ -36,8 +42,12 @@ main(string fun)
     object tp = this_player();
     
     if (!fun || fun == "") {
+	failures = 0;
 	recurse("/single/tests/");
-	write("Checks succeeded.\n");
+	if (failures)
+	    write(failures + " test file(s) failed.\n");
+	else
+	    write("Checks succeeded.\n");
 	return 1;
     }
 
