@@ -2564,7 +2564,7 @@ f_replace_string (void)
                         src += plen;
                         if (cur == last) break;
                     } else {
-                        memcpy(dst2, src, plen);
+                        memmove(dst2, src, plen);
                         dst2 += plen;
                         src += plen;
                     }

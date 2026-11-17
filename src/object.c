@@ -1508,11 +1508,11 @@ save_object (object_t * ob, const char * file, int save_zeros)
         return 0;
 
     len = strlen(file);
-    if (file[len-2] == '.' && file[len - 1] == 'c')
+    if (len >= 2 && file[len-2] == '.' && file[len - 1] == 'c')
         len -= 2;
 
     if (sel == -1) sel = strlen(SAVE_EXTENSION);
-    if (strcmp(file + len - sel, SAVE_EXTENSION) == 0)
+    if (len >= sel && strcmp(file + len - sel, SAVE_EXTENSION) == 0)
         len -= sel;
 #ifdef HAVE_ZLIB
     if (gz_sel == -1) {
@@ -1723,17 +1723,17 @@ int restore_object (object_t * ob, const char * file, int noclear)
         return 0;
 
     len = strlen(file);
-    if (file[len-2] == '.' && file[len - 1] == 'c')
+    if (len >= 2 && file[len-2] == '.' && file[len - 1] == 'c')
         len -= 2;
 
     if (sel == -1) sel = strlen(SAVE_EXTENSION);
-    if (strcmp(file + len - sel, SAVE_EXTENSION) == 0)
+    if (len >= sel && strcmp(file + len - sel, SAVE_EXTENSION) == 0)
         len -= sel;
 
 #ifdef HAVE_ZLIB
     else {
       if (gz_sel == -1) gz_sel = strlen(SAVE_GZ_EXTENSION);
-      if (strcmp(file + len - gz_sel, SAVE_GZ_EXTENSION) == 0)
+      if (len >= gz_sel && strcmp(file + len - gz_sel, SAVE_GZ_EXTENSION) == 0)
           len -= gz_sel;
     }
     name = new_string(len + gz_sel, "restore_object");
